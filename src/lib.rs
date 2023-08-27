@@ -23,7 +23,7 @@ use sha2::Digest;
 use chacha20poly1305::aead::{
     generic_array::GenericArray, Aead, AeadCore, KeyInit as ChaChaKeyInit,
 };
-use ed25519_dalek::{Signer, SigningKey, Verifier};
+use ed25519_dalek::{Signer, Verifier};
 
 /// for converting any string into 32 bytes.
 ///
@@ -46,7 +46,7 @@ pub fn string_to_32_bytes(val: String) -> [u8; 32] {
     out
 }
 
-/// for converting 32 byte x25519 keys to strings for indexing.
+/// for converting 32 byte `x25519` public keys to strings for indexing.
 ///
 /// uses `base64::encode`.
 ///
@@ -81,7 +81,7 @@ pub fn encode_key_to_string_encrypted(key: [u8; 32], val: String) -> String {
     base64::encode(block_encrypt_key(key, string_to_32_bytes(val)))
 }
 
-/// for decoding the x25519 public keys from strings
+/// for decoding `x25519` public keys from strings
 ///
 /// uses `base64::decode` and then converts to fixed `[u8; 32]`.
 ///
@@ -254,38 +254,18 @@ pub fn block_decrypt_signature(key: [u8; 32], encrypted_content: [u8; 64]) -> [u
     combined_array
 }
 
-#[cfg(test)]
-mod encryption_tests {
-    use super::*;
-
-    #[test]
-    fn test_key_encryption() -> Result<(), String> {
-        let (priv_exchange_key, pub_exchange_key) = generate_exchange_keys();
-
-        let encrypted_key = block_encrypt_key(pub_exchange_key, priv_exchange_key);
-        let decrypted_key = block_decrypt_key(pub_exchange_key, encrypted_key);
-
-        assert_eq!(decrypted_key, priv_exchange_key);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_signature_encryption() -> Result<(), String> {
-        let (_, pub_exchange_key) = generate_exchange_keys();
-        let content = [0u8; 64];
-
-        let encrypted_signature = block_encrypt_signature(pub_exchange_key, content);
-        let decrypted_signature = block_decrypt_signature(pub_exchange_key, encrypted_signature);
-
-        assert_eq!(decrypted_signature, content);
-
-        Ok(())
-    }
-}
-
+/// for generating a user's initial signing keys.
+///
+/// uses `ed25519_dalek` to generate the keys.
+///
+/// ```rust
+/// let (signing_key, verifying_key) = ordinal_crypto::generate_signing_keys();
+///
+/// assert_eq!(signing_key.len(), 32);
+/// assert_eq!(verifying_key.len(), 32);
+/// ```
 pub fn generate_signing_keys() -> ([u8; 32], [u8; 32]) {
-    let signing_key: SigningKey = SigningKey::generate(&mut rand_core::OsRng);
+    let signing_key = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
 
     (
         signing_key.to_bytes(),
@@ -293,6 +273,18 @@ pub fn generate_signing_keys() -> ([u8; 32], [u8; 32]) {
     )
 }
 
+/// for signing "inner" content and encrypted request payloads.
+///
+/// uses `ed25519_dalek` to sign the content.
+///
+/// ```rust
+/// let (signing_key, verifying_key) = ordinal_crypto::generate_signing_keys();
+///
+/// let content = vec![0u8; 1024];
+/// let signature = ordinal_crypto::sign_content(content.clone(), signing_key);
+///
+/// assert_eq!(signature.len(), 64);
+/// ```
 pub fn sign_content(content: Vec<u8>, signing_key: [u8; 32]) -> [u8; 64] {
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key);
     let signature = signing_key.sign(&content);
@@ -300,6 +292,19 @@ pub fn sign_content(content: Vec<u8>, signing_key: [u8; 32]) -> [u8; 64] {
     signature.to_bytes()
 }
 
+/// for verifying signatures on "inner" content and request encrypted payloads.
+///
+/// uses `ed25519_dalek` to sign the content.
+///
+/// ```rust
+/// let (signing_key, verifying_key) = ordinal_crypto::generate_signing_keys();
+///
+/// let content = vec![0u8; 1024];
+/// let signature = ordinal_crypto::sign_content(content.clone(), signing_key);
+/// let signature_verified = ordinal_crypto::verify_signature(signature, verifying_key, content).is_ok();
+///
+/// assert_eq!(signature_verified, true);
+/// ```
 pub fn verify_signature(
     signature: [u8; 64],
     verifying_key: [u8; 32],
@@ -324,24 +329,6 @@ pub fn verify_signature(
                 err.to_string()
             ))
         }
-    }
-}
-
-#[cfg(test)]
-mod signing_and_verification_tests {
-    use super::*;
-
-    #[test]
-    fn test_signing_and_verification() -> Result<(), String> {
-        let (signing_key, verifying_key) = generate_signing_keys();
-
-        let content = vec![0u8; 1024];
-        let signature = sign_content(content.clone(), signing_key);
-        let signature_verified = verify_signature(signature, verifying_key, content).is_ok();
-
-        assert_eq!(signature_verified, true);
-
-        Ok(())
     }
 }
 
