@@ -339,12 +339,13 @@ pub fn verify_signature(
 /// of time. for each message that is sent, a brand new `ChaCha20` private
 /// key and nonce are created, thus guaranteeing forward secrecy in that
 /// dimension. as it pertains to forward secrecy for the `x25519` encryption,
-/// we essentially have "batched" forward secrecy, for the set of messages
-/// that are encrypted with a given private key's public key for that period
-/// of time. the `StaticSecret` is only ever stored in with `AES256` encryption
-/// and is not designed to leave a user's device (barring something like a "key
-/// export" if we wanted to make taking copies of your on-device data with you
-/// easier).
+/// we essentially have "batched" forward secrecy on the recipients' side, 
+/// for the set of messages that are encrypted with a given private key's public
+/// key for that period of time, but on the sender's side a brand new `x25519` private
+/// key is also generated and thrown away for each message. the `StaticSecret` which is
+/// stored, is only ever stored, encrypted with `AES256` and is not designed to leave a user's device 
+/// (barring something like a "key export" if we wanted to make taking copies 
+/// of your on-device data with you easier).
 ///
 /// ```rust
 /// let (priv_exchange_key, pub_exchange_key) = ordinal_crypto::generate_exchange_keys();
@@ -404,7 +405,7 @@ pub fn encrypt_and_sign_content(
     signing_key: [u8; 32],
     content: Vec<u8>,
     receiver_pub_exchange_keys: Vec<u8>,
-    // returns (nonce, key_sets packed together all as one line, encrypted_content, sender_public_key)
+    /// returns (nonce, key_sets packed together all as one line, encrypted_content, sender_public_key)
 ) -> Result<([u8; 24], Vec<u8>, Vec<u8>, [u8; 32]), String> {
     // sign inner
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key);
@@ -506,7 +507,7 @@ pub fn decrypt_content(
 
     nonce: [u8; 24],
     encrypted_content: Vec<u8>,
-    // (content, verifying_key) -> verifying key is to compare against deserialized content
+    /// (content, verifying_key) -> verifying key is to compare against deserialized content
 ) -> Result<(Vec<u8>, [u8; 32]), String> {
     let sender_pub_exchange_key = x25519_dalek::PublicKey::from(sender_pub_exchange_key);
     let receiver_priv_exchange_key = x25519_dalek::StaticSecret::from(receiver_priv_exchange_key);
