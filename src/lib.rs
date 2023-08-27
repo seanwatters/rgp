@@ -17,11 +17,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use aes::{
-    cipher::{BlockDecrypt, BlockEncrypt},
-    Aes256,
-};
-
+use aes::cipher::{BlockDecrypt, BlockEncrypt};
 use sha2::Digest;
 
 use chacha20poly1305::aead::{
@@ -109,8 +105,24 @@ pub fn decode_key_from_string(val: String) -> [u8; 32] {
     decoded_val_as_fixed_bytes
 }
 
+/// for encrypting most private keys within our protocol.
+///
+/// uses `aes::Aes256` to encrypt 2, 16 byte, blocks.
+///
+/// ```rust
+/// let encryption_key = [0u8; 32];
+/// let (priv_key, _) = ordinal_crypto::generate_exchange_keys();
+///
+/// let encrypted_priv_key = ordinal_crypto::block_encrypt_key(encryption_key, priv_key);
+///
+/// assert_ne!(priv_key, encrypted_priv_key);
+///
+/// let decrypted_priv_key = ordinal_crypto::block_decrypt_key(encryption_key, encrypted_priv_key);
+///
+/// assert_eq!(priv_key, decrypted_priv_key);
+/// ```
 pub fn block_encrypt_key(key: [u8; 32], content: [u8; 32]) -> [u8; 32] {
-    let cipher = Aes256::new(GenericArray::from_slice(&key));
+    let cipher = aes::Aes256::new(GenericArray::from_slice(&key));
 
     let block_one: [u8; 16] = content[0..16]
         .try_into()
@@ -133,8 +145,24 @@ pub fn block_encrypt_key(key: [u8; 32], content: [u8; 32]) -> [u8; 32] {
     combined_array
 }
 
+/// for decrypting keys encrypted with `ordinal_client::block_encrypt_key`.
+///
+/// uses `aes::Aes256` to decrypt 2, 16 byte, blocks.
+///
+/// ```rust
+/// let encryption_key = [0u8; 32];
+/// let (priv_key, _) = ordinal_crypto::generate_exchange_keys();
+///
+/// let encrypted_priv_key = ordinal_crypto::block_encrypt_key(encryption_key, priv_key);
+///
+/// assert_ne!(priv_key, encrypted_priv_key);
+///
+/// let decrypted_priv_key = ordinal_crypto::block_decrypt_key(encryption_key, encrypted_priv_key);
+///
+/// assert_eq!(priv_key, decrypted_priv_key);
+/// ```
 pub fn block_decrypt_key(key: [u8; 32], encrypted_content: [u8; 32]) -> [u8; 32] {
-    let cipher = Aes256::new(GenericArray::from_slice(&key));
+    let cipher = aes::Aes256::new(GenericArray::from_slice(&key));
 
     let block_one: [u8; 16] = encrypted_content[0..16]
         .try_into()
@@ -157,6 +185,22 @@ pub fn block_decrypt_key(key: [u8; 32], encrypted_content: [u8; 32]) -> [u8; 32]
     combined_array
 }
 
+/// for encrypting signatures.
+///
+/// uses `ordinal_crypto::block_encrypt_key` to encrypt 2, 32 byte, blocks.
+///
+/// ```rust
+/// let encryption_key = [0u8; 32];
+/// let signature = [0u8; 64];
+///
+/// let encrypted_sig = ordinal_crypto::block_encrypt_signature(encryption_key, signature);
+///
+/// assert_ne!(signature, encrypted_sig);
+///
+/// let decrypted_sig = ordinal_crypto::block_decrypt_signature(encryption_key, encrypted_sig);
+///
+/// assert_eq!(signature, decrypted_sig);
+/// ```
 pub fn block_encrypt_signature(key: [u8; 32], content: [u8; 64]) -> [u8; 64] {
     let block_one: [u8; 32] = content[0..32]
         .try_into()
@@ -176,6 +220,21 @@ pub fn block_encrypt_signature(key: [u8; 32], content: [u8; 64]) -> [u8; 64] {
     combined_array
 }
 
+/// for decrypting signatures.
+///
+/// uses `ordinal_crypto::block_decrypt_key` to decrypt 2, 32 byte, blocks.
+///
+/// ```rust
+/// let encryption_key = [0u8; 32];
+/// let signature = [0u8; 64];
+///
+/// let encrypted_sig = ordinal_crypto::block_encrypt_signature(encryption_key, signature);
+///
+/// assert_ne!(signature, encrypted_sig);
+///
+/// let decrypted_sig = ordinal_crypto::block_decrypt_signature(encryption_key, encrypted_sig);
+///
+/// assert_eq!(signature, decrypted_sig);
 pub fn block_decrypt_signature(key: [u8; 32], encrypted_content: [u8; 64]) -> [u8; 64] {
     let block_one: [u8; 32] = encrypted_content[0..32]
         .try_into()
