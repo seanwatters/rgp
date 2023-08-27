@@ -201,7 +201,7 @@ fn encrypt_and_sign_content_benchmark(c: &mut Criterion) {
 }
 
 fn decrypt_content_benchmark(c: &mut Criterion) {
-    let (_, priv_key, _, _, _, enc, _, nonce, eck, spk) =
+    let (priv_key, _, _, _, _, enc, _, nonce, eck, spk) =
         &*PUB_PRIV_SIGN_VER_CONT_ENC_SIG_NONCE_ECK_SPK;
 
     c.bench_function("decrypt_content", |b| {
