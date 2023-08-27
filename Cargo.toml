@@ -24,7 +24,7 @@ repository = "https://github.com/ordinarylabs/ordinal-crypto"
 license-file = "LICENSE"
 description = "The cryptography library for the Ordinal Protocol"
 readme = "README.md"
-homepage = "https://ordinarylabs.io/ordinal-crypto/ordinal_crypto/"
+homepage = "https://github.com/ordinarylabs"
 
 [dependencies]
 base64 = "0.21.2"
