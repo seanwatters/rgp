@@ -332,6 +332,26 @@ pub fn verify_signature(
     }
 }
 
+/// for generating exchange keys which are used for the whole e2ee part.
+///
+/// uses `x25519_dalek` to generate a `StaticSecret`. while the use of
+/// static secrets is discouraged, they're only used and valid for a window
+/// of time. for each message that is sent, a brand new `ChaCha20` private
+/// key and nonce are created, thus guaranteeing forward secrecy in that
+/// dimension. as it pertains to forward secrecy for the `x25519` encryption,
+/// we essentially have "batched" forward secrecy, for the set of messages
+/// that are encrypted with a given private key's public key for that period
+/// of time. the `StaticSecret` is only ever stored in with `AES256` encryption
+/// and is not designed to leave a user's device (barring something like a "key
+/// export" if we wanted to make taking copies of your on-device data with you
+/// easier).
+///
+/// ```rust
+/// let (priv_exchange_key, pub_exchange_key) = ordinal_crypto::generate_exchange_keys();
+///
+/// assert_eq!(priv_exchange_key.len(), 32);
+/// assert_eq!(pub_exchange_key.len(), 32);
+/// ```
 pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
     let priv_key = x25519_dalek::StaticSecret::random_from_rng(rand_core::OsRng);
     let pub_key = x25519_dalek::PublicKey::from(&priv_key);
@@ -339,19 +359,55 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
     (*priv_key.as_bytes(), *pub_key.as_bytes())
 }
 
+/// this is the "everything" of the content encryption on the Ordinal Protocol.
+///
+/// first the content is signed in its unaltered format, and the signature bytes
+/// are prefixed to the content prior to encryption, next the content is encrypted
+/// using the `XChaCha20Poly1305` cipher with a newly created nonce and private key,
+/// next that `ChaCha20` private key is encrypted using a `x25519_dalek::SharedSecret`
+/// with a fresh `StaticSecret` that is used only to encrypt this message and _all_
+/// of the recipients' public keys (thus adding 64 bytes to the payload for each
+/// recipient). the reason we see 64 bytes instead of just 32 (the size of the encrypted
+/// `ChaCha20` private key) is that we also need a way for a user to find their personal,
+/// encrypted copy of the private `ChaCha20` key, so we pair up the recipients' 32 byte
+/// public exchange keys with their copy, inside a giant byte array. given that this byte
+/// array might get rather large, it may make sense to switch this to a more "map-like" format
+/// but we will likely see larger messages being stored in the database. Finally the encrypted
+/// content itself is signed (this is for the Ordinal Server to verify the authenticity of the
+/// request) and the resulting values are returned.
+///
+/// ```rust
+/// let (priv_exchange_key, pub_exchange_key) = ordinal_crypto::generate_exchange_keys();
+/// let (signing_key, _) = ordinal_crypto::generate_signing_keys();
+///
+/// let content = vec![0u8; 1024];
+///
+/// let (nonce, key_sets, encrypted_content, sender_public_key) =
+///     ordinal_crypto::encrypt_and_sign_content(signing_key, content.clone(), pub_exchange_key.to_vec())
+///         .unwrap();
+///
+/// let mut encrypted_content_key: [u8; 32] = [0u8; 32];
+/// encrypted_content_key[0..32].copy_from_slice(&key_sets[32..64]);
+///
+/// let (decrypted_content, _) = ordinal_crypto::decrypt_content(
+///     sender_public_key,
+///     priv_exchange_key,
+///     encrypted_content_key,
+///     nonce,
+///     encrypted_content,
+/// )
+/// .unwrap();
+///
+/// assert_eq!(decrypted_content, content);
+/// ```
 pub fn encrypt_and_sign_content(
     signing_key: [u8; 32],
     content: Vec<u8>,
     receiver_pub_exchange_keys: Vec<u8>,
     // returns (nonce, key_sets packed together all as one line, encrypted_content, sender_public_key)
 ) -> Result<([u8; 24], Vec<u8>, Vec<u8>, [u8; 32]), String> {
+    // sign inner
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key);
-
-    let private_content_key =
-        chacha20poly1305::XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
-    let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&private_content_key);
-
-    let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
 
     let mut content_signature = signing_key.clone().sign(&content).to_vec();
     let verifying_key = signing_key.verifying_key();
@@ -359,10 +415,18 @@ pub fn encrypt_and_sign_content(
     content_signature.extend(verifying_key.as_bytes().to_vec());
     content_signature.extend(content);
 
+    // encrypt
+    let private_content_key =
+        chacha20poly1305::XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
+    let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&private_content_key);
+    let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
+
     let encrypted_content = match content_cipher.encrypt(&nonce, content_signature.as_ref()) {
         Ok(ec) => ec,
         Err(err) => return Err(format!("failed to encrypt content: {}", err.to_string())),
     };
+
+    // per-recipient encryption and addressing
 
     // 256 bit [u8; 32] receiver_pub_exchange_key
     // 256 bit [u8; 32] encrypted_content_key
@@ -398,6 +462,42 @@ pub fn encrypt_and_sign_content(
     Ok((nonce.into(), key_sets, encrypted_content, sender_public_key))
 }
 
+/// this is the "everything" of the content decryption on the Ordinal Protocol.
+///
+/// as the receiver, we have a database full of our `x25519_dalek::StaticSecret`s (all encrypted
+/// using `AES256`), which are all addressed by their corresponding "stringified" public keys.
+/// so, at the time of message receipt, they will retrieve the private key for the public key
+/// that the sender encrypted the message with, _with_ that public key.
+///
+/// first we generate the shared secret with our "windowed" or "batch" `StaticSecret` and the sender's
+/// public key, next we decrypt the "content key" (private `ChaCha20` key that was encrypted with this
+/// same shared secret, this is just our copy), and finally with the private `ChaCha20` key decrypted
+/// we can now decrypt the actual content.  
+///
+/// ```rust
+/// let (priv_exchange_key, pub_exchange_key) = ordinal_crypto::generate_exchange_keys();
+/// let (signing_key, _) = ordinal_crypto::generate_signing_keys();
+///
+/// let content = vec![0u8; 1024];
+///
+/// let (nonce, key_sets, encrypted_content, sender_public_key) =
+///     ordinal_crypto::encrypt_and_sign_content(signing_key, content.clone(), pub_exchange_key.to_vec())
+///         .unwrap();
+///
+/// let mut encrypted_content_key: [u8; 32] = [0u8; 32];
+/// encrypted_content_key[0..32].copy_from_slice(&key_sets[32..64]);
+///
+/// let (decrypted_content, _) = ordinal_crypto::decrypt_content(
+///     sender_public_key,
+///     priv_exchange_key,
+///     encrypted_content_key,
+///     nonce,
+///     encrypted_content,
+/// )
+/// .unwrap();
+///
+/// assert_eq!(decrypted_content, content);
+/// ```
 pub fn decrypt_content(
     sender_pub_exchange_key: [u8; 32],
     receiver_priv_exchange_key: [u8; 32],
@@ -443,38 +543,5 @@ pub fn decrypt_content(
             }
         }
         Err(err) => return Err(format!("failed to decrypt content: {}", err.to_string())),
-    }
-}
-
-#[cfg(test)]
-mod encryption_and_verification_tests {
-    use super::*;
-
-    #[test]
-    fn test_encryption_and_verification() -> Result<(), String> {
-        let (priv_exchange_key, pub_exchange_key) = generate_exchange_keys();
-        let (signing_key, _) = generate_signing_keys();
-
-        let content = vec![0u8; 1024];
-
-        let (nonce, key_sets, encrypted_content, sender_public_key) =
-            encrypt_and_sign_content(signing_key, content.clone(), pub_exchange_key.to_vec())
-                .unwrap();
-
-        let mut encrypted_content_key: [u8; 32] = [0u8; 32];
-        encrypted_content_key[0..32].copy_from_slice(&key_sets[32..64]);
-
-        let (decrypted_content, _) = decrypt_content(
-            sender_public_key,
-            priv_exchange_key,
-            encrypted_content_key,
-            nonce,
-            encrypted_content,
-        )
-        .unwrap();
-
-        assert_eq!(decrypted_content, content);
-
-        Ok(())
     }
 }
