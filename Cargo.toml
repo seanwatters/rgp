@@ -17,7 +17,7 @@
 
 [package]
 name = "ordinal_crypto"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["sean watters sean@watters.io"]
 repository = "https://github.com/ordinarylabs/ordinal-crypto"
