@@ -133,26 +133,6 @@ fn block_decrypt_key_benchmark(c: &mut Criterion) {
     });
 }
 
-fn block_encrypt_signature_benchmark(c: &mut Criterion) {
-    let (pub_key, _, _, _, _, _, sig, _, _, _) = &*PUB_PRIV_SIGN_VER_CONT_ENC_SIG_NONCE_ECK_SPK;
-
-    c.bench_function("block_encrypt_signature", |b| {
-        b.iter(|| {
-            ordinal_crypto::block_encrypt_signature(*pub_key, *sig);
-        })
-    });
-}
-
-fn block_decrypt_signature_benchmark(c: &mut Criterion) {
-    let (pub_key, _, _, _, _, _, sig, _, _, _) = &*PUB_PRIV_SIGN_VER_CONT_ENC_SIG_NONCE_ECK_SPK;
-
-    c.bench_function("block_decrypt_signature", |b| {
-        b.iter(|| {
-            ordinal_crypto::block_decrypt_signature(*pub_key, *sig);
-        })
-    });
-}
-
 fn generate_signing_keys_benchmark(c: &mut Criterion) {
     c.bench_function("generate_signing_keys", |b| {
         b.iter(move || {
@@ -219,8 +199,6 @@ criterion_group!(
     encode_key_to_string_benchmark,
     block_encrypt_key_benchmark,
     block_decrypt_key_benchmark,
-    block_encrypt_signature_benchmark,
-    block_decrypt_signature_benchmark,
     generate_signing_keys_benchmark,
     sign_content_benchmark,
     decode_key_from_string_benchmark,

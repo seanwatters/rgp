@@ -25,6 +25,8 @@ use chacha20poly1305::aead::{
 };
 use ed25519_dalek::{Signer, Verifier};
 
+use base64::{engine::general_purpose::STANDARD as b64, Engine};
+
 /// for converting any string into 32 bytes.
 ///
 /// uses `sha2::Sha256`.
@@ -48,7 +50,7 @@ pub fn string_to_32_bytes(val: String) -> [u8; 32] {
 
 /// for converting 32 byte `x25519` public keys to strings for indexing.
 ///
-/// uses `base64::encode`.
+/// uses `base64::engine::general_purpose::STANDARD.encode`.
 ///
 /// ```rust
 /// let key = [0u8; 32];
@@ -57,14 +59,13 @@ pub fn string_to_32_bytes(val: String) -> [u8; 32] {
 /// assert_eq!(key_str, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".to_string());
 ///```
 pub fn encode_key_to_string(val: [u8; 32]) -> String {
-    #[allow(deprecated)]
-    base64::encode(val)
+    b64.encode(val)
 }
 
 /// for hashing usernames stored in the local database for public key routing.
 ///
 /// first turns the username into a 32 byte array with `ordinal_crypto::string_to_32_bytes`,
-/// next `ordinal_client::block_encrypt_key` with the provided key, finally `base64::encode`.
+/// next `ordinal_client::block_encrypt_key` with the provided key, finally `base64::engine::general_purpose::STANDARD.encode`.
 ///
 ///```rust
 /// let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
@@ -77,13 +78,12 @@ pub fn encode_key_to_string(val: [u8; 32]) -> String {
 /// assert_ne!(str_hash, str_enc);
 ///```
 pub fn encode_key_to_string_encrypted(key: [u8; 32], val: String) -> String {
-    #[allow(deprecated)]
-    base64::encode(block_encrypt_key(key, string_to_32_bytes(val)))
+    b64.encode(block_encrypt_key(key, string_to_32_bytes(val)))
 }
 
 /// for decoding `x25519` public keys from strings
 ///
-/// uses `base64::decode` and then converts to fixed `[u8; 32]`.
+/// uses `base64::engine::general_purpose::STANDARD.decode` and then converts to fixed `[u8; 32]`.
 ///
 /// ```rust
 /// let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
@@ -94,8 +94,7 @@ pub fn encode_key_to_string_encrypted(key: [u8; 32], val: String) -> String {
 /// assert_eq!(decoded_key, pub_key);
 ///```
 pub fn decode_key_from_string(val: String) -> [u8; 32] {
-    #[allow(deprecated)]
-    let decoded_val = base64::decode(val).expect("failed to decode val");
+    let decoded_val = b64.decode(val).expect("failed to decode val");
 
     let decoded_val_as_bytes: &[u8] = &decoded_val;
     let decoded_val_as_fixed_bytes: [u8; 32] = decoded_val_as_bytes
@@ -181,75 +180,6 @@ pub fn block_decrypt_key(key: [u8; 32], encrypted_content: [u8; 32]) -> [u8; 32]
 
     combined_array[0..16].copy_from_slice(block_one_as_generic_array.as_slice());
     combined_array[16..32].copy_from_slice(block_two_as_generic_array.as_slice());
-
-    combined_array
-}
-
-/// for encrypting signatures.
-///
-/// uses `ordinal_crypto::block_encrypt_key` to encrypt 2, 32 byte, blocks.
-///
-/// ```rust
-/// let encryption_key = [0u8; 32];
-/// let signature = [0u8; 64];
-///
-/// let encrypted_sig = ordinal_crypto::block_encrypt_signature(encryption_key, signature);
-///
-/// assert_ne!(signature, encrypted_sig);
-///
-/// let decrypted_sig = ordinal_crypto::block_decrypt_signature(encryption_key, encrypted_sig);
-///
-/// assert_eq!(signature, decrypted_sig);
-/// ```
-pub fn block_encrypt_signature(key: [u8; 32], content: [u8; 64]) -> [u8; 64] {
-    let block_one: [u8; 32] = content[0..32]
-        .try_into()
-        .expect("failed to convert block one to fixed bytes");
-    let block_two: [u8; 32] = content[32..64]
-        .try_into()
-        .expect("failed to convert block two to fixed bytes");
-
-    let block_one_encrypted = block_encrypt_key(key, block_one);
-    let block_two_encrypted = block_encrypt_key(key, block_two);
-
-    let mut combined_array: [u8; 64] = [0; 64];
-
-    combined_array[0..32].copy_from_slice(block_one_encrypted.as_slice());
-    combined_array[32..64].copy_from_slice(block_two_encrypted.as_slice());
-
-    combined_array
-}
-
-/// for decrypting signatures.
-///
-/// uses `ordinal_crypto::block_decrypt_key` to decrypt 2, 32 byte, blocks.
-///
-/// ```rust
-/// let encryption_key = [0u8; 32];
-/// let signature = [0u8; 64];
-///
-/// let encrypted_sig = ordinal_crypto::block_encrypt_signature(encryption_key, signature);
-///
-/// assert_ne!(signature, encrypted_sig);
-///
-/// let decrypted_sig = ordinal_crypto::block_decrypt_signature(encryption_key, encrypted_sig);
-///
-/// assert_eq!(signature, decrypted_sig);
-pub fn block_decrypt_signature(key: [u8; 32], encrypted_content: [u8; 64]) -> [u8; 64] {
-    let block_one: [u8; 32] = encrypted_content[0..32]
-        .try_into()
-        .expect("failed to convert block one to fixed bytes");
-    let block_two: [u8; 32] = encrypted_content[32..64]
-        .try_into()
-        .expect("failed to convert block two to fixed bytes");
-
-    let block_one_decrypted = block_decrypt_key(key, block_one);
-    let block_two_decrypted = block_decrypt_key(key, block_two);
-
-    let mut combined_array: [u8; 64] = [0; 64];
-
-    combined_array[0..32].copy_from_slice(block_one_decrypted.as_slice());
-    combined_array[32..64].copy_from_slice(block_two_decrypted.as_slice());
 
     combined_array
 }
@@ -501,7 +431,7 @@ pub fn encrypt_and_sign_content(
 /// assert_eq!(decrypted_content, content);
 /// ```
 ///
-/// (content, verifying_key) -> verifying key is to compare against deserialized content
+/// (content, verifying_key) -> verifying key is used to identify sender
 pub fn decrypt_content(
     sender_pub_exchange_key: [u8; 32],
     receiver_priv_exchange_key: [u8; 32],
