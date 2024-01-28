@@ -23,8 +23,8 @@ homepage = "https://github.com/ordinarylabs"
 license = "AGPL-3.0"
 name = "ordinal_crypto"
 readme = "README.md"
-repository = "https://github.com/ordinarylabs/ordinal_crypto"
-version = "0.2.0"
+repository = "https://github.com/ordinarylabs/ordinal-crypto"
+version = "0.2.1"
 
 [dependencies]
 base64 = "0.21.2"
