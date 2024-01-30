@@ -252,21 +252,18 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 ///
 /// let content = vec![0u8; 1024];
 ///
-/// let encrypted_content = ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key).unwrap();
+/// let encrypted_content =
+///     ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key).unwrap();
 ///
-/// let key_header_bytes: [u8; 2] = encrypted_content[0..2].try_into().expect("failed to convert bytes");
-///
-/// let key_count = u16::from_be_bytes(key_header_bytes) as usize;
-/// let keys_end = key_count * 32 + 2;
-///
-/// let encrypted_content_key = encrypted_content[2..34].try_into().expect("failed to convert bytes");
+/// let (encrypted_content, encrypted_key) =
+///     ordinal_crypto::get_components_for_key_position(&encrypted_content, 0).unwrap();
 ///
 /// let decrypted_content = ordinal_crypto::decrypt_content(
 ///     Some(&verifying_key),
 ///     priv_key,
 ///
-///     &encrypted_content_key,
-///     &encrypted_content[keys_end..],
+///     &encrypted_key,
+///     &encrypted_content,
 /// )
 /// .unwrap();
 ///
@@ -341,6 +338,30 @@ pub fn encrypt_content(
     out.extend(encrypted_content);
 
     Ok(out)
+}
+
+pub fn extract_components_for_key_position(
+    encrypted_content: &[u8],
+    position: u16,
+) -> Result<(Vec<u8>, [u8; 32]), &'static str> {
+    let key_header_bytes: [u8; 2] = match encrypted_content[0..2].try_into() {
+        Ok(b) => b,
+        Err(_) => return Err("failed to convert keys header to bytes"),
+    };
+
+    let key_count = u16::from_be_bytes(key_header_bytes) as usize;
+    let keys_end = key_count * 32 + 2;
+
+    let encrypted_content_key =
+        match encrypted_content[(2 + position as usize)..(34 + position as usize)].try_into() {
+            Ok(b) => b,
+            Err(_) => return Err("failed to convert content key to bytes"),
+        };
+
+    Ok((
+        encrypted_content[keys_end..].to_vec(),
+        encrypted_content_key,
+    ))
 }
 
 pub fn decrypt_content(
