@@ -41,20 +41,27 @@ lazy_static! {
 
         let signature = ordinal_crypto::sign_content(&content, &fingerprint);
 
-        let (key_sets, encrypted_content) =
+        let encrypted_content =
             ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key.to_vec()).unwrap();
 
-        let mut encrypted_content_key: [u8; 32] = [0u8; 32];
-        encrypted_content_key[0..32].copy_from_slice(&key_sets[32..64]);
+        let key_header_bytes: [u8; 4] = encrypted_content[0..4]
+            .try_into()
+            .expect("failed to convert bytes");
+
+        let key_count = u32::from_be_bytes(key_header_bytes) as usize;
+        let keys_end = key_count * 32 + 4;
+
+        let encrypted_content_key = encrypted_content[4..36]
+            .try_into()
+            .expect("failed to convert bytes");
 
         let mut multi_pub_keys = vec![];
 
-        for _ in 0..10000 {
+        for _ in 0..1000 {
             multi_pub_keys.extend(pub_key)
         }
 
-        let aead_encrypted_content =
-            ordinal_crypto::aead_block_encrypt(&priv_key, &content).unwrap();
+        let aead_encrypted_content = ordinal_crypto::aead_encrypt(&priv_key, &content).unwrap();
 
         (
             pub_key,
@@ -62,7 +69,7 @@ lazy_static! {
             fingerprint,
             verifying_key,
             content,
-            encrypted_content,
+            encrypted_content[keys_end..].to_vec(),
             signature,
             encrypted_content_key,
             multi_pub_keys,
@@ -102,42 +109,42 @@ fn decode_32_bytes_from_string_benchmark(c: &mut Criterion) {
     });
 }
 
-fn block_encrypt_32_bytes_benchmark(c: &mut Criterion) {
+fn encrypt_32_bytes_benchmark(c: &mut Criterion) {
     let (pub_key, priv_key, _, _, _, _, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_ECK_MPK_AEAD;
 
-    c.bench_function("block_encrypt_32_bytes", |b| {
+    c.bench_function("encrypt_32_bytes", |b| {
         b.iter(|| {
-            ordinal_crypto::block_encrypt_32_bytes(pub_key, priv_key).unwrap();
+            ordinal_crypto::encrypt_32_bytes(pub_key, priv_key).unwrap();
         })
     });
 }
 
-fn block_decrypt_32_bytes_benchmark(c: &mut Criterion) {
+fn decrypt_32_bytes_benchmark(c: &mut Criterion) {
     let (pub_key, priv_key, _, _, _, _, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_ECK_MPK_AEAD;
 
-    c.bench_function("block_decrypt_32_bytes", |b| {
+    c.bench_function("decrypt_32_bytes", |b| {
         b.iter(|| {
-            ordinal_crypto::block_decrypt_32_bytes(pub_key, priv_key).unwrap();
+            ordinal_crypto::decrypt_32_bytes(pub_key, priv_key).unwrap();
         })
     });
 }
 
-fn aead_block_encrypt_benchmark(c: &mut Criterion) {
+fn aead_encrypt_benchmark(c: &mut Criterion) {
     let (_, priv_key, _, _, cont, _, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_ECK_MPK_AEAD;
 
-    c.bench_function("aead_block_encrypt", |b| {
+    c.bench_function("aead_encrypt", |b| {
         b.iter(|| {
-            ordinal_crypto::aead_block_encrypt(priv_key, cont).unwrap();
+            ordinal_crypto::aead_encrypt(priv_key, cont).unwrap();
         })
     });
 }
 
-fn aead_block_decrypt_benchmark(c: &mut Criterion) {
+fn aead_decrypt_benchmark(c: &mut Criterion) {
     let (_, priv_key, _, _, _, _, _, _, _, aead) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_ECK_MPK_AEAD;
 
-    c.bench_function("aead_block_decrypt", |b| {
+    c.bench_function("aead_decrypt", |b| {
         b.iter(|| {
-            ordinal_crypto::aead_block_decrypt(priv_key, aead).unwrap();
+            ordinal_crypto::aead_decrypt(priv_key, aead).unwrap();
         })
     });
 }
@@ -213,10 +220,10 @@ criterion_group!(
     str_to_32_bytes_benchmark,
     encode_32_bytes_to_string_benchmark,
     decode_32_bytes_from_string_benchmark,
-    block_encrypt_32_bytes_benchmark,
-    block_decrypt_32_bytes_benchmark,
-    aead_block_encrypt_benchmark,
-    aead_block_decrypt_benchmark,
+    encrypt_32_bytes_benchmark,
+    decrypt_32_bytes_benchmark,
+    aead_encrypt_benchmark,
+    aead_decrypt_benchmark,
     generate_fingerprint_benchmark,
     sign_content_benchmark,
     verify_signature_benchmark,

@@ -17,11 +17,13 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+use aes::cipher::{BlockDecrypt, BlockEncrypt};
 use base64::{engine::general_purpose::STANDARD as b64, Engine};
 
-use aead::{generic_array::GenericArray, Aead, AeadCore, KeyInit};
-use aes_gcm::aes;
-use aes_gcm::aes::cipher::{BlockDecrypt, BlockEncrypt};
+use aead::{
+    generic_array::{typenum, GenericArray},
+    Aead, AeadCore, KeyInit,
+};
 
 use ed25519_dalek::{Signer, Verifier};
 
@@ -80,89 +82,70 @@ pub fn decode_32_bytes_from_string(val: &str) -> Result<[u8; 32], &'static str> 
 /// let key = [0u8; 32];
 /// let priv_key = [1u8; 32];
 ///
-/// let encrypted_priv_key = ordinal_crypto::block_encrypt_32_bytes(&key, &priv_key).unwrap();
+/// let encrypted_priv_key = ordinal_crypto::encrypt_32_bytes(&key, &priv_key).unwrap();
 ///
 /// assert_eq!(encrypted_priv_key, [123, 195, 2, 108, 215, 55, 16, 62, 98, 144, 43, 205, 24, 251, 1, 99, 123, 195, 2, 108, 215, 55, 16, 62, 98, 144, 43, 205, 24, 251, 1, 99]);
 ///
-/// let decrypted_priv_key = ordinal_crypto::block_decrypt_32_bytes(&key, &encrypted_priv_key).unwrap();
+/// let decrypted_priv_key = ordinal_crypto::decrypt_32_bytes(&key, &encrypted_priv_key).unwrap();
 ///
 /// assert_eq!(priv_key, decrypted_priv_key);
 /// ```
-pub fn block_encrypt_32_bytes(
-    key: &[u8; 32],
-    content: &[u8; 32],
-) -> Result<[u8; 32], &'static str> {
-    let cipher = aes::Aes256Enc::new(GenericArray::from_slice(key));
+pub fn encrypt_32_bytes(key: &[u8; 32], content: &[u8; 32]) -> Result<[u8; 32], &'static str> {
+    let cipher = aes::Aes256Enc::new(key.into());
 
-    let block_one: [u8; 16] = match content[0..16].try_into() {
-        Ok(block) => block,
-        Err(_) => return Err("failed to convert block one to fixed bytes"),
-    };
-    let block_two: [u8; 16] = match content[16..32].try_into() {
-        Ok(block) => block,
-        Err(_) => return Err("failed to convert block two to fixed bytes"),
-    };
+    let mut block_one = *GenericArray::<u8, typenum::U16>::from_slice(&content[0..16]);
+    let mut block_two = *GenericArray::<u8, typenum::U16>::from_slice(&content[16..32]);
 
-    let mut block_one_as_generic_array = GenericArray::from(block_one);
-    let mut block_two_as_generic_array = GenericArray::from(block_two);
-
-    cipher.encrypt_block(&mut block_one_as_generic_array);
-    cipher.encrypt_block(&mut block_two_as_generic_array);
+    cipher.encrypt_block(&mut block_one);
+    cipher.encrypt_block(&mut block_two);
 
     let mut combined_array: [u8; 32] = [0u8; 32];
 
-    combined_array[0..16].copy_from_slice(block_one_as_generic_array.as_slice());
-    combined_array[16..32].copy_from_slice(block_two_as_generic_array.as_slice());
+    combined_array[0..16].copy_from_slice(&block_one);
+    combined_array[16..32].copy_from_slice(&block_two);
 
     Ok(combined_array)
 }
 
-pub fn block_decrypt_32_bytes(
+pub fn decrypt_32_bytes(
     key: &[u8; 32],
     encrypted_content: &[u8; 32],
 ) -> Result<[u8; 32], &'static str> {
-    let cipher = aes::Aes256Dec::new(GenericArray::from_slice(key));
+    let cipher = aes::Aes256Dec::new(key.into());
 
-    let block_one: [u8; 16] = match encrypted_content[0..16].try_into() {
-        Ok(block) => block,
-        Err(_) => return Err("failed to convert block one to fixed bytes"),
-    };
-    let block_two: [u8; 16] = match encrypted_content[16..32].try_into() {
-        Ok(block) => block,
-        Err(_) => return Err("failed to convert block two to fixed bytes"),
-    };
+    let mut block_one = *GenericArray::<u8, typenum::U16>::from_slice(&encrypted_content[0..16]);
+    let mut block_two = *GenericArray::<u8, typenum::U16>::from_slice(&encrypted_content[16..32]);
 
-    let mut block_one_as_generic_array = GenericArray::from(block_one);
-    let mut block_two_as_generic_array = GenericArray::from(block_two);
-
-    cipher.decrypt_block(&mut block_one_as_generic_array);
-    cipher.decrypt_block(&mut block_two_as_generic_array);
+    cipher.decrypt_block(&mut block_one);
+    cipher.decrypt_block(&mut block_two);
 
     let mut combined_array: [u8; 32] = [0; 32];
 
-    combined_array[0..16].copy_from_slice(block_one_as_generic_array.as_slice());
-    combined_array[16..32].copy_from_slice(block_two_as_generic_array.as_slice());
+    combined_array[0..16].copy_from_slice(&block_one);
+    combined_array[16..32].copy_from_slice(&block_two);
 
     Ok(combined_array)
 }
 
 /// for securely encrypting/decrypting remotely stored data.
 ///
-/// AEAD adds 28 bytes (including the 12 byte nonce) to the encrypted result.
+/// uses ChaCha20Poly1305.
+///
+/// AEAD adds 40 bytes (including the 24 byte nonce) to the encrypted result.
 ///
 /// ```rust
 /// let key = [0u8; 32];
 /// let content = vec![0u8; 1024];
 ///
-/// let encrypted_content = ordinal_crypto::aead_block_encrypt(&key, &content).unwrap();
-/// assert_eq!(encrypted_content.len(), content.len() + 28);
+/// let encrypted_content = ordinal_crypto::aead_encrypt(&key, &content).unwrap();
+/// assert_eq!(encrypted_content.len(), content.len() + 40);
 ///
-/// let decrypted_content = ordinal_crypto::aead_block_decrypt(&key, &encrypted_content).unwrap();
+/// let decrypted_content = ordinal_crypto::aead_decrypt(&key, &encrypted_content).unwrap();
 /// assert_eq!(decrypted_content, content);
 /// ```
-pub fn aead_block_encrypt(key: &[u8; 32], content: &[u8]) -> Result<Vec<u8>, &'static str> {
-    let cipher = aes_gcm::Aes256Gcm::new(key.into());
-    let nonce = aes_gcm::Aes256Gcm::generate_nonce(&mut rand_core::OsRng);
+pub fn aead_encrypt(key: &[u8; 32], content: &[u8]) -> Result<Vec<u8>, &'static str> {
+    let cipher = chacha20poly1305::XChaCha20Poly1305::new(key.into());
+    let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
 
     let ciphertext = match cipher.encrypt(&nonce, content) {
         Ok(ct) => ct,
@@ -177,20 +160,17 @@ pub fn aead_block_encrypt(key: &[u8; 32], content: &[u8]) -> Result<Vec<u8>, &'s
     Ok(out)
 }
 
-pub fn aead_block_decrypt(
-    key: &[u8; 32],
-    encrypted_content: &[u8],
-) -> Result<Vec<u8>, &'static str> {
-    let cipher = aes_gcm::Aes256Gcm::new(key.into());
+pub fn aead_decrypt(key: &[u8; 32], encrypted_content: &[u8]) -> Result<Vec<u8>, &'static str> {
+    let cipher = chacha20poly1305::XChaCha20Poly1305::new(key.into());
 
-    let nonce_as_bytes: [u8; 12] = match encrypted_content[0..12].try_into() {
+    let nonce_as_bytes: [u8; 24] = match encrypted_content[0..24].try_into() {
         Ok(v) => v,
         Err(_) => return Err("failed to convert block one to fixed bytes"),
     };
 
-    let nonce = aes_gcm::Nonce::from(nonce_as_bytes);
+    let nonce = chacha20poly1305::XNonce::from(nonce_as_bytes);
 
-    match cipher.decrypt(&nonce, &encrypted_content[12..]) {
+    match cipher.decrypt(&nonce, &encrypted_content[24..]) {
         Ok(out) => Ok(out),
         Err(_) => Err("failed to decrypt"),
     }
@@ -264,25 +244,30 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 
 /// ties everything together as the core encryption/signing logic.
 ///
+/// max public key count is 134,217,727 (~4.3gb). messages will need to be broken up for audiences
+/// larger than that and probably should be—for real-world performance reasons—long before that.
+///
 /// ```rust
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
 /// let (fingerprint, verifying_key) = ordinal_crypto::generate_fingerprint();
 ///
 /// let content = vec![0u8; 1024];
 ///
-/// let (key_sets, encrypted_content) =
-///     ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key)
-///         .unwrap();
+/// let encrypted_content = ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key).unwrap();
 ///
-/// let mut encrypted_content_key = [0u8; 32];
-/// encrypted_content_key[0..32].copy_from_slice(&key_sets[32..64]);
+/// let key_header_bytes: [u8; 4] = encrypted_content[0..4].try_into().expect("failed to convert bytes");
+///
+/// let key_count = u32::from_be_bytes(key_header_bytes) as usize;
+/// let keys_end = key_count * 32 + 4;
+///
+/// let encrypted_content_key = encrypted_content[4..36].try_into().expect("failed to convert bytes");
 ///
 /// let decrypted_content = ordinal_crypto::decrypt_content(
 ///     Some(&verifying_key),
 ///     priv_key,
 ///
 ///     &encrypted_content_key,
-///     &encrypted_content,
+///     &encrypted_content[keys_end..],
 /// )
 /// .unwrap();
 ///
@@ -292,12 +277,17 @@ pub fn encrypt_content(
     fingerprint: &[u8; 32],
     content: &[u8],
     pub_keys: &[u8],
-) -> Result<(Vec<u8>, Vec<u8>), &'static str> {
+) -> Result<Vec<u8>, &'static str> {
+    // 134,217,727 * 32 -> 4_294_967_264
+    if pub_keys.len() > 4_294_967_264 {
+        return Err("cannot encrypt for more than 134,217,727 keys");
+    }
+
     // sign inner
     let fingerprint = ed25519_dalek::SigningKey::from_bytes(fingerprint);
-    let mut content_signature = fingerprint.sign(content).to_vec();
+    let mut to_be_encrypted = fingerprint.sign(content).to_vec();
 
-    content_signature.extend(content);
+    to_be_encrypted.extend(content);
 
     // encrypt
     let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
@@ -305,19 +295,22 @@ pub fn encrypt_content(
 
     let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key);
 
-    let encrypted_content = match content_cipher.encrypt(&nonce, content_signature.as_ref()) {
+    let encrypted_content = match content_cipher.encrypt(&nonce, to_be_encrypted.as_ref()) {
         Ok(ec) => ec,
         Err(_) => return Err("failed to encrypt content"),
     };
 
     // per-recipient encryption and addressing
 
-    // 256 bit [u8; 32] pub_key
-    // 256 bit [u8; 32] encrypted_content_key
-    let mut key_sets: Vec<u8> = vec![];
+    let mut keys: Vec<u8> = vec![];
 
-    let (ot_priv_key, ot_pub_key) = generate_exchange_keys();
-    let ot_priv_key = x25519_dalek::StaticSecret::from(ot_priv_key);
+    let (e_priv_key, e_pub_key) = generate_exchange_keys();
+    let e_priv_key = x25519_dalek::StaticSecret::from(e_priv_key);
+
+    let content_key_as_bytes: [u8; 32] = match content_key.try_into() {
+        Ok(v) => v,
+        Err(_) => return Err("failed to convert content key to fixed bytes"),
+    };
 
     for pub_key in pub_keys.chunks(32) {
         let pub_key_as_bytes: [u8; 32] = match pub_key.try_into() {
@@ -325,37 +318,37 @@ pub fn encrypt_content(
             Err(_) => return Err("failed to convert pub key to fixed bytes"),
         };
 
-        let shared_secret = ot_priv_key
+        let shared_secret = e_priv_key
             .diffie_hellman(&x25519_dalek::PublicKey::from(pub_key_as_bytes))
             .to_bytes();
 
-        let content_key_as_bytes: [u8; 32] = match content_key.try_into() {
-            Ok(v) => v,
-            Err(_) => return Err("failed to convert content key to fixed bytes"),
-        };
-
-        match block_encrypt_32_bytes(&shared_secret, &content_key_as_bytes) {
+        match encrypt_32_bytes(&shared_secret, &content_key_as_bytes) {
             Ok(encrypted_content_key) => {
-                key_sets.extend(pub_key_as_bytes);
-                key_sets.extend(encrypted_content_key);
+                keys.extend(encrypted_content_key);
             }
             Err(err) => return Err(err),
         };
     }
 
-    let mut out = ot_pub_key.to_vec();
+    // keys count header is first 4 bytes
+    let mut out = ((keys.len() / 32) as u32).to_be_bytes().to_vec();
+    out.extend(keys);
 
+    // fist 32 bytes after keys
+    out.extend(e_pub_key);
+    // next 24 bytes
     out.extend(nonce);
+    // all remaining bytes
     out.extend(encrypted_content);
 
-    Ok((key_sets, out))
+    Ok(out)
 }
 
 pub fn decrypt_content(
     verifying_key: Option<&[u8; 32]>,
     priv_key: [u8; 32],
 
-    content_key: &[u8; 32],
+    encrypted_key: &[u8; 32],
     encrypted_content: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
     let pub_key: [u8; 32] = match encrypted_content[0..32].try_into() {
@@ -369,22 +362,16 @@ pub fn decrypt_content(
     };
 
     let priv_key = x25519_dalek::StaticSecret::from(priv_key);
-    let ot_pub_key = x25519_dalek::PublicKey::from(pub_key);
+    let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
 
-    let shared_secret = priv_key.diffie_hellman(&ot_pub_key).to_bytes();
-
-    let content_key = match block_decrypt_32_bytes(&shared_secret, content_key) {
+    let content_key = match decrypt_32_bytes(&shared_secret, encrypted_key) {
         Ok(key) => key,
         Err(err) => return Err(err),
     };
 
-    let content_cipher =
-        chacha20poly1305::XChaCha20Poly1305::new(GenericArray::from_slice(&content_key));
+    let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key.into());
 
-    match content_cipher.decrypt(
-        &chacha20poly1305::XNonce::from(nonce),
-        &encrypted_content[56..],
-    ) {
+    match content_cipher.decrypt(&nonce.into(), &encrypted_content[56..]) {
         Ok(content) => {
             let signature_as_bytes: [u8; 64] = match content[0..64].try_into() {
                 Ok(v) => v,
