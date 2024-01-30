@@ -44,14 +44,14 @@ lazy_static! {
         let encrypted_content =
             ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key.to_vec()).unwrap();
 
-        let key_header_bytes: [u8; 4] = encrypted_content[0..4]
+        let key_header_bytes: [u8; 2] = encrypted_content[0..2]
             .try_into()
             .expect("failed to convert bytes");
 
-        let key_count = u32::from_be_bytes(key_header_bytes) as usize;
-        let keys_end = key_count * 32 + 4;
+        let key_count = u16::from_be_bytes(key_header_bytes) as usize;
+        let keys_end = key_count * 32 + 2;
 
-        let encrypted_content_key = encrypted_content[4..36]
+        let encrypted_content_key = encrypted_content[2..34]
             .try_into()
             .expect("failed to convert bytes");
 

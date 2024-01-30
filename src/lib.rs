@@ -244,8 +244,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 
 /// ties everything together as the core encryption/signing logic.
 ///
-/// max public key count is 134,217,727 (~4.3gb). messages will need to be broken up for audiences
-/// larger than that and probably should be—for real-world performance reasons—long before that.
+/// max public key count is 65,535 (~2mb). messages will need to be broken up for audiences.
 ///
 /// ```rust
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
@@ -255,12 +254,12 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 ///
 /// let encrypted_content = ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key).unwrap();
 ///
-/// let key_header_bytes: [u8; 4] = encrypted_content[0..4].try_into().expect("failed to convert bytes");
+/// let key_header_bytes: [u8; 2] = encrypted_content[0..2].try_into().expect("failed to convert bytes");
 ///
-/// let key_count = u32::from_be_bytes(key_header_bytes) as usize;
-/// let keys_end = key_count * 32 + 4;
+/// let key_count = u16::from_be_bytes(key_header_bytes) as usize;
+/// let keys_end = key_count * 32 + 2;
 ///
-/// let encrypted_content_key = encrypted_content[4..36].try_into().expect("failed to convert bytes");
+/// let encrypted_content_key = encrypted_content[2..34].try_into().expect("failed to convert bytes");
 ///
 /// let decrypted_content = ordinal_crypto::decrypt_content(
 ///     Some(&verifying_key),
@@ -278,9 +277,9 @@ pub fn encrypt_content(
     content: &[u8],
     pub_keys: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
-    // 134,217,727 * 32 -> 4_294_967_264
-    if pub_keys.len() > 4_294_967_264 {
-        return Err("cannot encrypt for more than 134,217,727 keys");
+    // 65,535 * 32 -> 2_097_120
+    if pub_keys.len() > 2_097_120 {
+        return Err("cannot encrypt for more than 65,535 keys");
     }
 
     // sign inner
@@ -330,8 +329,8 @@ pub fn encrypt_content(
         };
     }
 
-    // keys count header is first 4 bytes
-    let mut out = ((keys.len() / 32) as u32).to_be_bytes().to_vec();
+    // keys count header is first 2 bytes
+    let mut out = ((keys.len() / 32) as u16).to_be_bytes().to_vec();
     out.extend(keys);
 
     // fist 32 bytes after keys
