@@ -37,6 +37,9 @@ use ed25519_dalek::{Signer, Verifier};
 /// assert_eq!(as_bytes, [203, 45, 149, 129, 3, 178, 1, 67, 250, 246, 202, 173, 92, 191, 166, 179, 92, 88, 254, 10, 57, 47, 185, 199, 203, 181, 239, 189, 52, 121, 135, 86]);
 ///```
 pub fn str_to_32_bytes(val: &str) -> [u8; 32] {
+    // TODO: consider blake2, as blake3 reduces the overall security to the equivalent of ChaCha14
+    // TODO: and most of the hashing you're doing is on smaller values where Blake2s256 w/ 10 rounds
+    // TODO: would be equivalent to ChaCha20 and sufficient speed wise.
     let result = blake3::hash(val.as_bytes());
     *result.as_bytes()
 }
@@ -296,7 +299,7 @@ pub fn encrypt_content(
         Err(_) => return Err("failed to encrypt content"),
     };
 
-    // per-recipient encryption and addressing
+    // per-recipient encryption
 
     let mut keys: Vec<u8> = vec![];
 

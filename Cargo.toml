@@ -24,7 +24,7 @@ license = "AGPL-3.0"
 name = "ordinal_crypto"
 readme = "README.md"
 repository = "https://github.com/ordinarylabs/ordinal-crypto"
-version = "0.3.3"
+version = "0.3.4"
 
 [dependencies]
 base64 = "0.21.2"
