@@ -256,7 +256,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 ///     ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key).unwrap();
 ///
 /// let (encrypted_content, encrypted_key) =
-///     ordinal_crypto::get_components_for_key_position(&encrypted_content, 0).unwrap();
+///     ordinal_crypto::extract_components_for_key_position(&encrypted_content, 0).unwrap();
 ///
 /// let decrypted_content = ordinal_crypto::decrypt_content(
 ///     Some(&verifying_key),
