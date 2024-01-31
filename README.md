@@ -37,7 +37,7 @@ assert_eq!(decrypted_content, content);
 - MAX public keys -> 65,535
 - MAX content size -> 77.46237 mb
 
-Reasoning:
+### Reasoning:
 
 IPv6 minimum MTU 1,280
 
