@@ -17,6 +17,9 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+const NONCE_SIZE: usize = 24;
+const ENCRYPTED_KEY_LENGTH: usize = 56;
+
 /// for converting any string into 32 bytes.
 ///
 /// uses `blake3`.
@@ -27,35 +30,33 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 /// assert_eq!(as_bytes, [203, 45, 149, 129, 3, 178, 1, 67, 250, 246, 202, 173, 92, 191, 166, 179, 92, 88, 254, 10, 57, 47, 185, 199, 203, 181, 239, 189, 52, 121, 135, 86]);
 ///```
 pub fn hash_str(val: &str) -> [u8; 32] {
-    // TODO: consider blake2, as blake3 reduces the overall security to the equivalent of ChaCha14
-    // TODO: and most of the hashing you're doing is on smaller values where Blake2s256 w/ 10 rounds
-    // TODO: would be equivalent to ChaCha20 and sufficient speed wise.
     let result = blake3::hash(val.as_bytes());
     *result.as_bytes()
 }
 
 /// for securely encrypting/decrypting remotely stored data.
 ///
-/// uses chacha20poly1305::ChaCha20Poly1305.
+/// uses chacha20poly1305::XChaCha20Poly1305.
 ///
-/// AEAD adds 40 bytes (including the 24 byte nonce) to the encrypted result.
+/// AEAD adds 28 bytes (including the 12 byte nonce) to the encrypted result.
 ///
 /// ```rust
 /// let key = [0u8; 32];
 /// let content = vec![0u8; 1024];
 ///
 /// let encrypted_content = ordinal_crypto::aead::encrypt(&key, &content).unwrap();
-/// assert_eq!(encrypted_content.len(), content.len() + 40);
+/// assert_eq!(encrypted_content.len(), content.len() + 28);
 ///
 /// let decrypted_content = ordinal_crypto::aead::decrypt(&key, &encrypted_content).unwrap();
 /// assert_eq!(decrypted_content, content);
 /// ```
 pub mod aead {
-    use aead::{Aead, AeadCore, KeyInit};
+    use super::NONCE_SIZE;
+    use chacha20poly1305::aead::{Aead, AeadCore, KeyInit};
 
     pub fn encrypt(key: &[u8; 32], content: &[u8]) -> Result<Vec<u8>, &'static str> {
-        let cipher = chacha20poly1305::XChaCha20Poly1305::new(key.into());
-        let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
+        let cipher = chacha20poly1305::XChaCha12Poly1305::new(key.into());
+        let nonce = chacha20poly1305::XChaCha12Poly1305::generate_nonce(&mut rand_core::OsRng);
 
         let ciphertext = match cipher.encrypt(&nonce, content) {
             Ok(ct) => ct,
@@ -71,16 +72,14 @@ pub mod aead {
     }
 
     pub fn decrypt(key: &[u8; 32], encrypted_content: &[u8]) -> Result<Vec<u8>, &'static str> {
-        let cipher = chacha20poly1305::XChaCha20Poly1305::new(key.into());
+        let cipher = chacha20poly1305::XChaCha12Poly1305::new(key.into());
 
-        let nonce_as_bytes: [u8; 24] = match encrypted_content[0..24].try_into() {
+        let nonce_as_bytes: [u8; NONCE_SIZE] = match encrypted_content[0..NONCE_SIZE].try_into() {
             Ok(v) => v,
             Err(_) => return Err("failed to convert block one to fixed bytes"),
         };
 
-        let nonce = chacha20poly1305::XNonce::from(nonce_as_bytes);
-
-        match cipher.decrypt(&nonce, &encrypted_content[24..]) {
+        match cipher.decrypt(&nonce_as_bytes.into(), &encrypted_content[NONCE_SIZE..]) {
             Ok(out) => Ok(out),
             Err(_) => Err("failed to decrypt"),
         }
@@ -141,11 +140,10 @@ pub mod signature {
     }
 }
 pub mod bytes_32 {
-    use aes::cipher::{
-        generic_array::{typenum, GenericArray},
-        BlockDecrypt, BlockEncrypt, KeyInit,
-    };
+    use super::{ENCRYPTED_KEY_LENGTH, NONCE_SIZE};
     use base64::{engine::general_purpose::STANDARD as b64, Engine};
+    use chacha20::cipher::{KeyIvInit, StreamCipher};
+    use chacha20poly1305::aead::AeadCore;
 
     /// for converting 32 byte keys to/from strings.
     ///
@@ -182,7 +180,7 @@ pub mod bytes_32 {
 
     /// for block encrypting one-time content keys.
     ///
-    /// uses `aes::Aes256` to encrypt 2, 16 byte, blocks.
+    /// uses `chacha20::XChaCha12` to encrypt 32 bytes and produces 56.
     ///
     /// ```rust
     /// let key = [0u8; 32];
@@ -196,40 +194,37 @@ pub mod bytes_32 {
     ///
     /// assert_eq!(priv_key, decrypted_priv_key);
     /// ```
-    pub fn encrypt(key: &[u8; 32], content: &[u8; 32]) -> [u8; 32] {
-        let cipher = aes::Aes256Enc::new(key.into());
+    pub fn encrypt(key: &[u8; 32], content: &[u8; 32]) -> [u8; ENCRYPTED_KEY_LENGTH] {
+        let nonce = chacha20poly1305::XChaCha12Poly1305::generate_nonce(&mut rand_core::OsRng);
+        let mut cipher = chacha20::XChaCha12::new(key.into(), &nonce);
 
-        let mut block_one = *GenericArray::<u8, typenum::U16>::from_slice(&content[0..16]);
-        let mut block_two = *GenericArray::<u8, typenum::U16>::from_slice(&content[16..32]);
+        let mut buffer = content.clone();
 
-        cipher.encrypt_block(&mut block_one);
-        cipher.encrypt_block(&mut block_two);
+        cipher.apply_keystream(&mut buffer);
 
-        let mut combined_array: [u8; 32] = [0u8; 32];
+        let mut out: [u8; ENCRYPTED_KEY_LENGTH] = [0u8; ENCRYPTED_KEY_LENGTH];
 
-        combined_array[0..16].copy_from_slice(&block_one);
-        combined_array[16..32].copy_from_slice(&block_two);
+        out[0..32].copy_from_slice(&buffer);
+        out[32..ENCRYPTED_KEY_LENGTH].copy_from_slice(&nonce);
 
-        combined_array
+        out
     }
 
-    pub fn decrypt(key: &[u8; 32], encrypted_content: &[u8; 32]) -> [u8; 32] {
-        let cipher = aes::Aes256Dec::new(key.into());
+    pub fn decrypt(key: &[u8; 32], encrypted_content: &[u8; ENCRYPTED_KEY_LENGTH]) -> [u8; 32] {
+        let mut nonce: [u8; NONCE_SIZE] = [0u8; NONCE_SIZE];
+        nonce[0..NONCE_SIZE].copy_from_slice(&encrypted_content[32..ENCRYPTED_KEY_LENGTH]);
 
-        let mut block_one =
-            *GenericArray::<u8, typenum::U16>::from_slice(&encrypted_content[0..16]);
-        let mut block_two =
-            *GenericArray::<u8, typenum::U16>::from_slice(&encrypted_content[16..32]);
+        let mut cipher = chacha20::XChaCha12::new(key.into(), &nonce.into());
 
-        cipher.decrypt_block(&mut block_one);
-        cipher.decrypt_block(&mut block_two);
+        let mut buffer = encrypted_content[0..32].to_vec();
 
-        let mut combined_array: [u8; 32] = [0; 32];
+        cipher.apply_keystream(&mut buffer);
 
-        combined_array[0..16].copy_from_slice(&block_one);
-        combined_array[16..32].copy_from_slice(&block_two);
+        let mut out: [u8; 32] = [0; 32];
 
-        combined_array
+        out[0..32].copy_from_slice(&buffer);
+
+        out
     }
 }
 
@@ -250,7 +245,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 
 /// ties everything together as the core encryption/signing logic.
 ///
-/// max public key count is 65,535 (~2mb).
+/// max public key count is 65,535 (~2mb in ~3.67mb out).
 ///
 /// ```rust
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
@@ -276,9 +271,8 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// assert_eq!(decrypted_content, content);
 /// ```
 pub mod content {
-    use aead::{Aead, AeadCore, KeyInit};
-
-    const ENCRYPTED_KEY_LENGTH: usize = 32;
+    use super::{ENCRYPTED_KEY_LENGTH, NONCE_SIZE};
+    use chacha20poly1305::aead::{Aead, AeadCore, KeyInit};
 
     pub fn encrypt(
         fingerprint: &[u8; 32],
@@ -291,14 +285,16 @@ pub mod content {
         }
 
         // sign inner
+
         let mut to_be_encrypted = super::signature::sign(fingerprint, content).to_vec();
         to_be_encrypted.extend(content);
 
         // encrypt
-        let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
-        let content_key = chacha20poly1305::XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
 
-        let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key);
+        let nonce = chacha20poly1305::XChaCha12Poly1305::generate_nonce(&mut rand_core::OsRng);
+        let content_key = chacha20poly1305::XChaCha12Poly1305::generate_key(&mut rand_core::OsRng);
+
+        let content_cipher = chacha20poly1305::XChaCha12Poly1305::new(&content_key);
 
         let encrypted_content = match content_cipher.encrypt(&nonce, to_be_encrypted.as_ref()) {
             Ok(ec) => ec,
@@ -384,7 +380,7 @@ pub mod content {
             Err(_) => return Err("failed to convert pub key to fixed bytes bytes"),
         };
 
-        let nonce: [u8; 24] = match encrypted_content[32..56].try_into() {
+        let nonce: [u8; NONCE_SIZE] = match encrypted_content[32..32 + NONCE_SIZE].try_into() {
             Ok(key) => key,
             Err(_) => return Err("failed to convert nonce to fixed bytes bytes"),
         };
@@ -394,9 +390,9 @@ pub mod content {
 
         let content_key = super::bytes_32::decrypt(&shared_secret, encrypted_key);
 
-        let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key.into());
+        let content_cipher = chacha20poly1305::XChaCha12Poly1305::new(&content_key.into());
 
-        match content_cipher.decrypt(&nonce.into(), &encrypted_content[56..]) {
+        match content_cipher.decrypt(&nonce.into(), &encrypted_content[32 + NONCE_SIZE..]) {
             Ok(content) => match verifying_key {
                 Some(verifying_key) => {
                     let signature_as_bytes: [u8; 64] = match content[0..64].try_into() {

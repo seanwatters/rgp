@@ -13,17 +13,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aes"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac1f845298e95f983ff1944b728ae08b8cebab80d684f0a832ed0fc74dfa27e2"
-dependencies = [
- "cfg-if 1.0.0",
- "cipher",
- "cpufeatures",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -611,16 +600,14 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
 name = "ordinal_crypto"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
- "aead",
- "aes",
  "base64",
  "blake3",
+ "chacha20",
  "chacha20poly1305",
  "criterion",
  "ed25519-dalek",
- "lazy_static",
  "rand_core",
  "x25519-dalek",
 ]
