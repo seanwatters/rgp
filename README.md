@@ -18,12 +18,12 @@ let encrypted_content =
     ordinal_crypto::content::encrypt(&fingerprint, &content, &pub_key).unwrap();
 
 let (encrypted_content, encrypted_key) =
-    ordinal_crypto::content::extract_components_for_key_position(&encrypted_content, 0).unwrap();
+    ordinal_crypto::content::extract_components_for_key_position(&encrypted_content, 0)
+        .unwrap();
 
 let decrypted_content = ordinal_crypto::content::decrypt(
     Some(&verifying_key),
     priv_key,
-
     &encrypted_key,
     &encrypted_content,
 )
