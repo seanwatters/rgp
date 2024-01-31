@@ -17,6 +17,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#![doc = include_str!("../README.md")]
+
 const NONCE_SIZE: usize = 24;
 const ENCRYPTED_KEY_LENGTH: usize = 32;
 
@@ -44,7 +46,7 @@ pub fn hash_str(val: &str) -> [u8; 32] {
 ///
 /// ```rust
 /// let key = [0u8; 32];
-/// let content = vec![0u8; 1024];
+/// let content = vec![0u8; 1214];
 ///
 /// let encrypted_content = ordinal_crypto::aead::encrypt(&key, &content).unwrap();
 /// assert_eq!(encrypted_content.len(), content.len() + 40);
@@ -93,7 +95,7 @@ pub mod aead {
 /// ```rust
 /// let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1024];
+/// let content = vec![0u8; 1214];
 ///
 /// let signature = ordinal_crypto::signature::sign(&fingerprint, &content);
 ///
@@ -179,6 +181,11 @@ pub mod bytes_32 {
 
     /// for encrypting one-time content keys.
     ///
+    /// WARNING: this implementation may currently be vulnerable to side-channel timing attacks
+    /// due to my lack of expertise as it relates to how much (if anything) the timing of the block
+    /// allocations reveals about the underlying bytes being allocated. There is *a* way to do this
+    /// correctly, it will just need to be reviewed.
+    ///
     /// ```rust
     /// let key = [0u8; 32];
     /// let priv_key = [1u8; 32];
@@ -245,13 +252,31 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 
 /// ties everything together as the core encryption/signing logic.
 ///
-/// max public key count is 65,535 (~2mb).
+/// MAX public keys -> 65,535
+/// MAX content size -> 77.46237 mb
+///
+/// Reasoning:
+///
+/// IPv6 minimum MTU 1,280
+///
+/// each UDP packet in our system needs:
+/// - IPv6 headers (40 bytes)
+/// - UDP headers (8 bytes)
+/// - uuid (16 bytes)
+/// - position (2 bytes)
+///
+/// our base, usable packet size, is 1,214 bytes (1,280 bytes - 40 bytes - 8 bytes - 16 bytes - 2 bytes)
+///
+/// total possible in a “payload” with a 16 bit position counter is 79.55949 mb (1,214 bytes * 65,535)
+///
+/// MAX public keys (32 bytes * 65,535) = 2.09712 mb
+/// MAX content size (MAX "payload" size - MAX public keys) = 77.46237 mb
 ///
 /// ```rust
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
 /// let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1024];
+/// let content = vec![0u8; 1214];
 ///
 /// let encrypted_content =
 ///     ordinal_crypto::content::encrypt(&fingerprint, &content, &pub_key).unwrap();
@@ -279,9 +304,12 @@ pub mod content {
         content: &[u8],
         pub_keys: &[u8],
     ) -> Result<Vec<u8>, &'static str> {
-        // 65,535 * 32 -> 2_097_120
         if pub_keys.len() > 2_097_120 {
-            return Err("cannot encrypt for more than 65,535 keys");
+            return Err("cannot encrypt for more than 65,535 public keys");
+        }
+
+        if content.len() > 77_462_370 {
+            return Err("cannot encrypt content larger than 77.46237 mb");
         }
 
         // sign inner
