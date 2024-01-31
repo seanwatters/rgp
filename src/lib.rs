@@ -38,14 +38,14 @@ pub fn hash_str(val: &str) -> [u8; 32] {
 ///
 /// uses chacha20poly1305::XChaCha20Poly1305.
 ///
-/// AEAD adds 28 bytes (including the 12 byte nonce) to the encrypted result.
+/// AEAD adds 40 bytes (including the 24 byte nonce) to the encrypted result.
 ///
 /// ```rust
 /// let key = [0u8; 32];
 /// let content = vec![0u8; 1024];
 ///
 /// let encrypted_content = ordinal_crypto::aead::encrypt(&key, &content).unwrap();
-/// assert_eq!(encrypted_content.len(), content.len() + 28);
+/// assert_eq!(encrypted_content.len(), content.len() + 40);
 ///
 /// let decrypted_content = ordinal_crypto::aead::decrypt(&key, &encrypted_content).unwrap();
 /// assert_eq!(decrypted_content, content);
@@ -188,7 +188,7 @@ pub mod bytes_32 {
     ///
     /// let encrypted_priv_key = ordinal_crypto::bytes_32::encrypt(&key, &priv_key);
     ///
-    /// assert_eq!(encrypted_priv_key, [123, 195, 2, 108, 215, 55, 16, 62, 98, 144, 43, 205, 24, 251, 1, 99, 123, 195, 2, 108, 215, 55, 16, 62, 98, 144, 43, 205, 24, 251, 1, 99]);
+    /// assert_eq!(encrypted_priv_key.len(), 56);
     ///
     /// let decrypted_priv_key = ordinal_crypto::bytes_32::decrypt(&key, &encrypted_priv_key);
     ///
