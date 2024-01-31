@@ -34,8 +34,8 @@ assert_eq!(decrypted_content, content);
 
 ## Limits
 
-MAX public keys -> 65,535
-MAX content size -> 77.46237 mb
+- MAX public keys -> 65,535
+- MAX content size -> 77.46237 mb
 
 Reasoning:
 
@@ -51,8 +51,8 @@ our base, usable packet size, is 1,214 bytes (1,280 bytes - 40 bytes - 8 bytes -
 
 total possible in a “payload” with a 16 bit position counter is 79.55949 mb (1,214 bytes * 65,535)
 
-MAX public keys (32 bytes * 65,535) = 2.09712 mb
-MAX content size (MAX "payload" size - MAX public keys) = 77.46237 mb
+- MAX public keys (32 bytes * 65,535) = 2.09712 mb
+- MAX content size (MAX "payload" size - MAX public keys) = 77.46237 mb
 
 ## Security
 
