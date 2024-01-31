@@ -22,12 +22,10 @@ const ENCRYPTED_KEY_LENGTH: usize = 32;
 
 /// for converting any string into 32 bytes.
 ///
-/// uses `blake3`.
-///
 /// ```rust
 /// let as_bytes = ordinal_crypto::hash_str("make me bytes");
 ///
-/// assert_eq!(as_bytes, [203, 45, 149, 129, 3, 178, 1, 67, 250, 246, 202, 173, 92, 191, 166, 179, 92, 88, 254, 10, 57, 47, 185, 199, 203, 181, 239, 189, 52, 121, 135, 86]);
+/// assert_eq!(as_bytes, [140, 80, 144, 129, 175, 43, 30, 228, 156, 242, 68, 212, 88, 54, 57, 61, 153, 171, 132, 241, 152, 87, 192, 17, 182, 131, 148, 93, 31, 156, 227, 133]);
 ///```
 pub fn hash_str(val: &str) -> [u8; 32] {
     use blake2::Digest;
@@ -43,10 +41,6 @@ pub fn hash_str(val: &str) -> [u8; 32] {
 }
 
 /// for securely encrypting/decrypting remotely stored data.
-///
-/// uses chacha20poly1305::XChaCha20Poly1305.
-///
-/// AEAD adds 40 bytes (including the 24 byte nonce) to the encrypted result.
 ///
 /// ```rust
 /// let key = [0u8; 32];
@@ -95,8 +89,6 @@ pub mod aead {
 }
 
 /// for signing/verifying content and request payloads.
-///
-/// uses `ed25519_dalek` to sign the content.
 ///
 /// ```rust
 /// let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
@@ -156,8 +148,6 @@ pub mod bytes_32 {
 
     /// for converting 32 byte keys to/from strings.
     ///
-    /// uses `base64::engine::general_purpose::STANDARD`.
-    ///
     /// ```rust
     /// let key = [0u8; 32];
     ///
@@ -187,9 +177,7 @@ pub mod bytes_32 {
         Ok(decoded_val_as_bytes)
     }
 
-    /// for block encrypting one-time content keys.
-    ///
-    /// uses `aes::Aes256` to encrypt 2, 16 byte, blocks.
+    /// for encrypting one-time content keys.
     ///
     /// ```rust
     /// let key = [0u8; 32];
@@ -257,7 +245,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 
 /// ties everything together as the core encryption/signing logic.
 ///
-/// max public key count is 65,535 (~2mb in ~3.67mb out).
+/// max public key count is 65,535 (~2mb).
 ///
 /// ```rust
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
@@ -317,7 +305,7 @@ pub mod content {
 
         let mut keys: Vec<u8> = vec![];
 
-        let (e_priv_key, e_pub_key) = super::generate_exchange_keys();
+        let (e_priv_key, ot_pub_key) = super::generate_exchange_keys();
         let e_priv_key = x25519_dalek::StaticSecret::from(e_priv_key);
 
         let content_key_as_bytes: [u8; 32] = match content_key.try_into() {
@@ -345,7 +333,7 @@ pub mod content {
         out.extend(keys);
 
         // fist 32 bytes after keys
-        out.extend(e_pub_key);
+        out.extend(ot_pub_key);
         // next 24 bytes
         out.extend(nonce);
         // all remaining bytes
