@@ -19,147 +19,109 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
-use lazy_static::lazy_static;
-
-lazy_static! {
-    static ref PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD: (
-        [u8; 32],
-        [u8; 32],
-        [u8; 32],
-        [u8; 32],
-        Vec<u8>,
-        Vec<u8>,
-        [u8; 64],
-        Vec<u8>,
-        Vec<u8>
-    ) = {
-        let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
-        let (fingerprint, verifying_key) = ordinal_crypto::generate_fingerprint();
-
-        let content = vec![0u8; 1024];
-
-        let signature = ordinal_crypto::sign_content(&content, &fingerprint);
-
-        let encrypted_content =
-            ordinal_crypto::encrypt_content(&fingerprint, &content, &pub_key.to_vec()).unwrap();
-
-        let mut multi_pub_keys = vec![];
-
-        for _ in 0..1000 {
-            multi_pub_keys.extend(pub_key)
-        }
-
-        let aead_encrypted_content = ordinal_crypto::aead_encrypt(&priv_key, &content).unwrap();
-
-        (
-            pub_key,
-            priv_key,
-            fingerprint,
-            verifying_key,
-            content,
-            encrypted_content,
-            signature,
-            multi_pub_keys,
-            aead_encrypted_content,
-        )
-    };
-}
-
-fn str_to_32_bytes_benchmark(c: &mut Criterion) {
+fn hash_str_benchmark(c: &mut Criterion) {
     let val = "benching string to 32 bytes";
 
-    c.bench_function("str_to_32_bytes", |b| {
+    c.bench_function("hash_str", |b| {
         b.iter(|| {
-            ordinal_crypto::str_to_32_bytes(val);
-        })
-    });
-}
-
-fn encode_32_bytes_to_string_benchmark(c: &mut Criterion) {
-    let (_, _, fp, _, _, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
-
-    c.bench_function("encode_32_bytes_to_string", |b| {
-        b.iter(|| {
-            ordinal_crypto::encode_32_bytes_to_string(fp);
-        })
-    });
-}
-
-fn decode_32_bytes_from_string_benchmark(c: &mut Criterion) {
-    let (_, _, fp, _, _, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
-    let str_key = ordinal_crypto::encode_32_bytes_to_string(fp);
-
-    c.bench_function("decode_32_bytes_from_string", |b| {
-        b.iter(|| {
-            ordinal_crypto::decode_32_bytes_from_string(&str_key).unwrap();
-        })
-    });
-}
-
-fn encrypt_32_bytes_benchmark(c: &mut Criterion) {
-    let (pub_key, priv_key, _, _, _, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
-
-    c.bench_function("encrypt_32_bytes", |b| {
-        b.iter(|| {
-            ordinal_crypto::encrypt_32_bytes(pub_key, priv_key).unwrap();
-        })
-    });
-}
-
-fn decrypt_32_bytes_benchmark(c: &mut Criterion) {
-    let (pub_key, priv_key, _, _, _, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
-
-    c.bench_function("decrypt_32_bytes", |b| {
-        b.iter(|| {
-            ordinal_crypto::decrypt_32_bytes(pub_key, priv_key).unwrap();
+            ordinal_crypto::hash_str(val);
         })
     });
 }
 
 fn aead_encrypt_benchmark(c: &mut Criterion) {
-    let (_, priv_key, _, _, cont, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
+    let key = [0u8; 32];
+    let content = [0u8; 12_400];
 
     c.bench_function("aead_encrypt", |b| {
         b.iter(|| {
-            ordinal_crypto::aead_encrypt(priv_key, cont).unwrap();
+            ordinal_crypto::aead::encrypt(&key, &content).unwrap();
         })
     });
 }
 
 fn aead_decrypt_benchmark(c: &mut Criterion) {
-    let (_, priv_key, _, _, _, _, _, _, aead) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
+    let key = [0u8; 32];
+    let content = [0u8; 12_400];
+
+    let encrypted_content = ordinal_crypto::aead::encrypt(&key, &content).unwrap();
 
     c.bench_function("aead_decrypt", |b| {
         b.iter(|| {
-            ordinal_crypto::aead_decrypt(priv_key, aead).unwrap();
+            ordinal_crypto::aead::decrypt(&key, &encrypted_content).unwrap();
         })
     });
 }
 
-fn generate_fingerprint_benchmark(c: &mut Criterion) {
-    c.bench_function("generate_fingerprint", |b| {
+fn signature_generate_fingerprint_benchmark(c: &mut Criterion) {
+    c.bench_function("signature_generate_fingerprint", |b| {
         b.iter(|| {
-            ordinal_crypto::generate_fingerprint();
+            ordinal_crypto::signature::generate_fingerprint();
         })
     });
 }
 
-fn sign_content_benchmark(c: &mut Criterion) {
-    let (_, _, fp, _, _, enc, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
+fn signature_sign_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
+    let content = [0u8; 12_400];
 
-    c.bench_function("sign_content", |b| {
+    c.bench_function("signature_sign", |b| {
         b.iter(|| {
-            ordinal_crypto::sign_content(&enc, fp);
+            ordinal_crypto::signature::sign(&fingerprint, &content);
         })
     });
 }
 
-fn verify_signature_benchmark(c: &mut Criterion) {
-    let (_, _, _, ver, cont, _, sig, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
+fn signature_verify_benchmark(c: &mut Criterion) {
+    let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
+    let content = [0u8; 12_400];
 
-    c.bench_function("verify_signature", |b| {
+    let signature = ordinal_crypto::signature::sign(&fingerprint, &content);
+
+    c.bench_function("signature_verify", |b| {
         b.iter(|| {
-            ordinal_crypto::verify_signature(sig, ver, &cont).unwrap();
+            ordinal_crypto::signature::verify(&signature, &verifying_key, &content).unwrap();
+        })
+    });
+}
+
+fn bytes_32_encode_benchmark(c: &mut Criterion) {
+    let pub_key = [0u8; 32];
+
+    c.bench_function("bytes_32_encode", |b| {
+        b.iter(|| {
+            ordinal_crypto::bytes_32::encode(&pub_key);
+        })
+    });
+}
+
+fn bytes_32_decode_benchmark(c: &mut Criterion) {
+    let str_key = ordinal_crypto::bytes_32::encode(&[0u8; 32]);
+
+    c.bench_function("bytes_32_decode", |b| {
+        b.iter(|| {
+            ordinal_crypto::bytes_32::decode(&str_key).unwrap();
+        })
+    });
+}
+
+fn bytes_32_encrypt_benchmark(c: &mut Criterion) {
+    let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
+
+    c.bench_function("bytes_32_encrypt", |b| {
+        b.iter(|| {
+            ordinal_crypto::bytes_32::encrypt(&pub_key, &priv_key);
+        })
+    });
+}
+
+fn bytes_32_decrypt_benchmark(c: &mut Criterion) {
+    let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
+    let encrypted_priv_key = ordinal_crypto::bytes_32::encrypt(&pub_key, &priv_key);
+
+    c.bench_function("bytes_32_decrypt", |b| {
+        b.iter(|| {
+            ordinal_crypto::bytes_32::decrypt(&pub_key, &encrypted_priv_key);
         })
     });
 }
@@ -172,47 +134,68 @@ fn generate_exchange_keys_benchmark(c: &mut Criterion) {
     });
 }
 
-fn encrypt_content_benchmark(c: &mut Criterion) {
-    let (pub_key, _, fp, _, cont, _, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
+fn content_encrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
+    let content = [0u8; 12_400];
+    let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
 
-    c.bench_function("encrypt_content", |b| {
+    c.bench_function("content_encrypt", |b| {
         b.iter(|| {
-            ordinal_crypto::encrypt_content(fp, &cont, &pub_key.to_vec()).unwrap();
+            ordinal_crypto::content::encrypt(&fingerprint, &content, &pub_key.to_vec()).unwrap();
         })
     });
 }
 
-fn encrypt_multi_pub_key_benchmark(c: &mut Criterion) {
-    let (_, _, fp, _, cont, _, _, mrpk, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
+fn content_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
+    let content = [0u8; 12_400];
+    let mut pub_keys = vec![];
 
-    c.bench_function("encrypt_multi_pub_key", |b| {
+    for _ in 0..5000 {
+        let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
+        pub_keys.extend(pub_key)
+    }
+
+    c.bench_function("content_encrypt_multi_recipient", |b| {
         b.iter(|| {
-            ordinal_crypto::encrypt_content(fp, &cont, &mrpk).unwrap();
+            ordinal_crypto::content::encrypt(&fingerprint, &content, &pub_keys).unwrap();
         })
     });
 }
 
-fn extract_components_for_key_position_benchmark(c: &mut Criterion) {
-    let (_, _, _, _, _, enc, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
+fn content_extract_components_for_key_position_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
+    let content = [0u8; 12_400];
+    let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
 
-    c.bench_function("extract_components_for_key_position", |b| {
+    let encrypted_content =
+        ordinal_crypto::content::encrypt(&fingerprint, &content, &pub_key.to_vec()).unwrap();
+
+    c.bench_function("content_extract_components_for_key_position", |b| {
         b.iter(|| {
-            ordinal_crypto::extract_components_for_key_position(enc, 0).unwrap();
+            ordinal_crypto::content::extract_components_for_key_position(&encrypted_content, 0)
+                .unwrap();
         })
     });
 }
 
 fn decrypt_content_benchmark(c: &mut Criterion) {
-    let (_, priv_key, _, ver, _, enc, _, _, _) = &*PUB_PRIV_FP_VER_CONT_ENC_SIG_MPK_AEAD;
+    let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
+    let content = [0u8; 12_400];
+    let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
+
+    let encrypted_content =
+        ordinal_crypto::content::encrypt(&fingerprint, &content, &pub_key.to_vec()).unwrap();
 
     let (encrypted_content, encrypted_key) =
-        ordinal_crypto::extract_components_for_key_position(enc, 0).unwrap();
+        ordinal_crypto::content::extract_components_for_key_position(&encrypted_content, 0)
+            .unwrap();
 
     c.bench_function("decrypt_content", |b| {
         b.iter(|| {
-            ordinal_crypto::decrypt_content(
-                Some(ver),
-                *priv_key,
+            ordinal_crypto::content::decrypt(
+                Some(&verifying_key),
+                priv_key,
                 &encrypted_key,
                 &encrypted_content,
             )
@@ -223,20 +206,20 @@ fn decrypt_content_benchmark(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    str_to_32_bytes_benchmark,
-    encode_32_bytes_to_string_benchmark,
-    decode_32_bytes_from_string_benchmark,
-    encrypt_32_bytes_benchmark,
-    decrypt_32_bytes_benchmark,
+    hash_str_benchmark,
     aead_encrypt_benchmark,
     aead_decrypt_benchmark,
-    generate_fingerprint_benchmark,
-    sign_content_benchmark,
-    verify_signature_benchmark,
+    signature_generate_fingerprint_benchmark,
+    signature_sign_benchmark,
+    signature_verify_benchmark,
+    bytes_32_encode_benchmark,
+    bytes_32_decode_benchmark,
+    bytes_32_encrypt_benchmark,
+    bytes_32_decrypt_benchmark,
     generate_exchange_keys_benchmark,
-    encrypt_content_benchmark,
-    encrypt_multi_pub_key_benchmark,
-    extract_components_for_key_position_benchmark,
+    content_encrypt_benchmark,
+    content_encrypt_multi_recipient_benchmark,
+    content_extract_components_for_key_position_benchmark,
     decrypt_content_benchmark,
 );
 
