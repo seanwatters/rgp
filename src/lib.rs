@@ -252,10 +252,12 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 
 /// ties everything together as the core encryption/signing logic.
 ///
+/// ## Limits
+///
 /// - MAX public keys -> 65,535
 /// - MAX content size -> 77.462099 mb
 ///
-/// ### Reasoning:
+/// ### Reasoning
 ///
 /// IPv6 minimum MTU 1,280 bytes
 ///
@@ -267,7 +269,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 ///
 /// our base, usable packet size, is 1,214 bytes (1,280 bytes - 40 bytes - 8 bytes - 16 bytes - 2 bytes)
 ///
-/// total possible in a “payload” with a 16 bit position counter is 79.55949 mb (1,214 bytes * 65,535)
+/// *total possible in a “payload” with a 16 bit position counter is 79.55949 mb (1,214 bytes * 65,535)*
 ///
 /// Encryption Components:
 /// - inner signature = 64 bytes
@@ -275,15 +277,15 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// - Poly1305 MAC = 16 bytes
 /// - nonce = 24 bytes
 /// - keys count header = 2 bytes
-/// - MAX public keys (32 bytes * 65,535) = 2.09712 mb
+/// - **MAX public keys (32 bytes * 65,535) = 2.09712 mb**
 ///
-/// remaining "payload" space is 77.462232 mb
+/// *remaining "payload" space is 77.462232 mb*
 ///
 /// Destination Components:
 /// - location = 16 bytes
 /// - PUT key = 16 bytes
 ///
-/// remaining "payload" space is 77.4622 mb
+/// *remaining "payload" space is 77.4622 mb*
 ///
 /// Server Authentication Components:
 /// - payload signature = 64 bytes
@@ -303,7 +305,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 ///         - year = 1 byte
 ///         - infinite = 1 byte
 ///
-/// - MAX content size is 77.462099 mb
+/// **MAX content size is 77.462099 mb**
 ///
 /// ```rust
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
