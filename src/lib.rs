@@ -253,11 +253,11 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// ties everything together as the core encryption/signing logic.
 ///
 /// - MAX public keys -> 65,535
-/// - MAX content size -> 77.46237 mb
+/// - MAX content size -> 77.462099 mb
 ///
 /// ### Reasoning:
 ///
-/// IPv6 minimum MTU 1,280
+/// IPv6 minimum MTU 1,280 bytes
 ///
 /// each UDP packet in our system needs:
 /// - IPv6 headers (40 bytes)
@@ -269,8 +269,41 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 ///
 /// total possible in a “payload” with a 16 bit position counter is 79.55949 mb (1,214 bytes * 65,535)
 ///
+/// Encryption Components:
+/// - inner signature = 64 bytes
+/// - one-time public key = 32 bytes
+/// - Poly1305 MAC = 16 bytes
+/// - nonce = 24 bytes
+/// - keys count header = 2 bytes
 /// - MAX public keys (32 bytes * 65,535) = 2.09712 mb
-/// - MAX content size (MAX "payload" size - MAX public keys) = 77.46237 mb
+///
+/// remaining "payload" space is 77.462232 mb
+///
+/// Destination Components:
+/// - location = 16 bytes
+/// - PUT key = 16 bytes
+///
+/// remaining "payload" space is 77.4622 mb
+///
+/// Server Authentication Components:
+/// - payload signature = 64 bytes
+/// - token
+///     - HMAC = 32 bytes
+///     - id = 16 bytes
+///     - exp = 8 bytes
+///     - verifying key = 32 bytes
+///     - capacity units = 1 byte
+///     - write ops per CU = 2 bytes
+///     - write bytes per CU = 4 bytes
+///     - TTL cost multiplier
+///         - hour = 1 byte
+///         - day = 1 byte
+///         - week = 1 byte
+///         - month = 1 byte
+///         - year = 1 byte
+///         - infinite = 1 byte
+///
+/// - MAX content size is 77.462099 mb
 ///
 /// ```rust
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
@@ -308,8 +341,8 @@ pub mod content {
             return Err("cannot encrypt for more than 65,535 public keys");
         }
 
-        if content.len() > 77_462_370 {
-            return Err("cannot encrypt content larger than 77.46237 mb");
+        if content.len() > 77_462_099 {
+            return Err("cannot encrypt content larger than 77.462099 mb");
         }
 
         // sign inner
