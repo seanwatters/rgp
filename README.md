@@ -1,8 +1,10 @@
 # Ordinal Crypto 🔐
 
+![ci](https://github.com//ordinarylabs/ordinal-crypto/actions/workflows/rust.yml/badge.svg)
 [![crates.io](https://img.shields.io/crates/v/ordinal_crypto.svg)](https://crates.io/crates/ordinal_crypto)
-[![docs.rs](https://docs.rs/ordinal_crypto/badge.svg)](https://docs.rs/crate/ordinal_crypto/)
+[![docs.rs](https://docs.rs/ordinal_crypto/badge.svg)](https://docs.rs/ordinal_crypto/)
 [![license](https://img.shields.io/github/license/ordinarylabs/ordinal-crypto.svg)](https://github.com/ordinarylabs/ordinal-crypto/blob/main/LICENSE)
+[![dependency status](https://deps.rs/repo/github/ordinarylabs/ordinal-crypto/status.svg)](https://deps.rs/repo/github/ordinarylabs/ordinal-crypto)
 
 The cryptography library for the Ordinal Platform
 
