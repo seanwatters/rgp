@@ -230,7 +230,7 @@ pub mod content {
         content: &[u8],
         pub_keys: Vec<[u8; 32]>,
     ) -> Result<Vec<u8>, &'static str> {
-        if pub_keys.len() > 2_097_120 {
+        if pub_keys.len() > 65_535 {
             return Err("cannot encrypt for more than 65,535 public keys");
         }
 
