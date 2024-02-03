@@ -14,10 +14,14 @@ The cryptography library for the Ordinal Platform
 let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
 let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
 
+// MAX content size: 74.840698 mb
 let content = vec![0u8; 1214];
 
+// MAX pub keys: 65,535
+let pub_keys = vec![pub_key];
+
 let encrypted_content =
-    ordinal_crypto::content::encrypt(&fingerprint, &content, &pub_key).unwrap();
+    ordinal_crypto::content::encrypt(&fingerprint, &content, pub_keys).unwrap();
 
 let (encrypted_content, encrypted_key) =
     ordinal_crypto::content::extract_components_for_key_position(&encrypted_content, 0)
@@ -37,7 +41,7 @@ assert_eq!(decrypted_content, content);
 ## Limits
 
 - MAX public keys -> 65,535
-- MAX content size -> 77.462099 mb
+- MAX content size -> 74.840698 mb
 
 ### Reasoning
 
@@ -59,15 +63,18 @@ Encryption Components:
 - Poly1305 MAC = 16 bytes
 - nonce = 24 bytes
 - keys count header = 2 bytes
-- **MAX public keys (32 bytes * 65,535) = 2.09712 mb**
+- **MAX public keys (encrypted keys = 72 bytes * 65,535) = 4.71852 mb**
 
-*remaining "payload" space is 77.462232 mb*
+*remaining "payload" space is 74.840832 mb*
 
 Destination Components:
 - location = 16 bytes
 - PUT key = 16 bytes
+- TTL
+    - unit = 1 byte
+    - duration = 1 byte
 
-*remaining "payload" space is 77.4622 mb*
+*remaining "payload" space is 74.840798 mb*
 
 Server Authentication Components:
 - payload signature = 64 bytes
@@ -82,18 +89,12 @@ Server Authentication Components:
     - TTL cost multiplier
         - hour = 1 byte
         - day = 1 byte
-        - week = 1 byte
         - month = 1 byte
         - year = 1 byte
         - infinite = 1 byte
 
-**MAX content size is 77.462099 mb**
+**MAX content size is 74.840698 mb**
 
 ## Security
 
 *THIS CODE HAS NOT BEEN AUDITED OR REVIEWED. USE AT YOUR OWN RISK.*
-
-**WARNING:** the AES256 content key encryption implementation may currently be vulnerable to side-channel
-timing attacks due to my lack of expertise as it relates to how much (if anything) the timing of the block
-allocations reveals about the underlying bytes being allocated. There is *a* way to do this
-correctly, it will just need to be reviewed.
