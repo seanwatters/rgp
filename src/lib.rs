@@ -227,7 +227,7 @@ pub mod content {
 
     pub fn encrypt(
         fingerprint: &[u8; 32],
-        content: &[u8],
+        content: &Vec<u8>,
         pub_keys: Vec<[u8; 32]>,
     ) -> Result<Vec<u8>, &'static str> {
         if pub_keys.len() > 65_535 {

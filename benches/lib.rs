@@ -115,7 +115,7 @@ fn generate_exchange_keys_benchmark(c: &mut Criterion) {
 
 fn content_encrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
-    let content = [0u8; 12_140];
+    let content = vec![0u8; 12_140];
     let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
     let pub_keys = vec![pub_key];
 
@@ -128,7 +128,7 @@ fn content_encrypt_benchmark(c: &mut Criterion) {
 
 fn content_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
-    let content = [0u8; 12_140];
+    let content = vec![0u8; 12_140];
     let mut pub_keys = vec![];
 
     for _ in 0..5000 {
@@ -145,9 +145,13 @@ fn content_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
 
 fn content_extract_components_for_key_position_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
-    let content = [0u8; 12_140];
-    let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
-    let pub_keys = vec![pub_key];
+    let content = vec![0u8; 12_140];
+    let mut pub_keys = vec![];
+
+    for _ in 0..5000 {
+        let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
+        pub_keys.push(pub_key)
+    }
 
     let encrypted_content =
         ordinal_crypto::content::encrypt(&fingerprint, &content, pub_keys).unwrap();
@@ -162,7 +166,7 @@ fn content_extract_components_for_key_position_benchmark(c: &mut Criterion) {
 
 fn decrypt_content_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
-    let content = [0u8; 12_140];
+    let content = vec![0u8; 12_140];
     let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
 
     let pub_keys = vec![pub_key];
@@ -189,16 +193,16 @@ fn decrypt_content_benchmark(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    hash_str_benchmark,
-    bytes_32_encode_benchmark,
-    bytes_32_decode_benchmark,
-    aead_encrypt_benchmark,
-    aead_decrypt_benchmark,
-    signature_generate_fingerprint_benchmark,
-    signature_sign_benchmark,
-    signature_verify_benchmark,
-    generate_exchange_keys_benchmark,
-    content_encrypt_benchmark,
+    // hash_str_benchmark,
+    // bytes_32_encode_benchmark,
+    // bytes_32_decode_benchmark,
+    // aead_encrypt_benchmark,
+    // aead_decrypt_benchmark,
+    // signature_generate_fingerprint_benchmark,
+    // signature_sign_benchmark,
+    // signature_verify_benchmark,
+    // generate_exchange_keys_benchmark,
+    // content_encrypt_benchmark,
     content_encrypt_multi_recipient_benchmark,
     content_extract_components_for_key_position_benchmark,
     decrypt_content_benchmark,
