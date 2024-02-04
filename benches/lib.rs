@@ -51,7 +51,7 @@ fn bytes_32_decode_benchmark(c: &mut Criterion) {
 
 fn aead_encrypt_benchmark(c: &mut Criterion) {
     let key = [0u8; 32];
-    let content = [0u8; 12_140];
+    let content = [0u8; 1215];
 
     c.bench_function("aead_encrypt", |b| {
         b.iter(|| {
@@ -62,7 +62,7 @@ fn aead_encrypt_benchmark(c: &mut Criterion) {
 
 fn aead_decrypt_benchmark(c: &mut Criterion) {
     let key = [0u8; 32];
-    let content = [0u8; 12_140];
+    let content = [0u8; 1215];
 
     let encrypted_content = ordinal_crypto::aead::encrypt(&key, &content).unwrap();
 
@@ -83,7 +83,7 @@ fn signature_generate_fingerprint_benchmark(c: &mut Criterion) {
 
 fn signature_sign_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
-    let content = [0u8; 12_140];
+    let content = [0u8; 1215];
 
     c.bench_function("signature_sign", |b| {
         b.iter(|| {
@@ -94,7 +94,7 @@ fn signature_sign_benchmark(c: &mut Criterion) {
 
 fn signature_verify_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
-    let content = [0u8; 12_140];
+    let content = [0u8; 1215];
 
     let signature = ordinal_crypto::signature::sign(&fingerprint, &content);
 
@@ -115,7 +115,7 @@ fn generate_exchange_keys_benchmark(c: &mut Criterion) {
 
 fn content_encrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
-    let content = vec![0u8; 12_140];
+    let content = vec![0u8; 1215];
     let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
     let pub_keys = vec![pub_key];
 
@@ -128,7 +128,7 @@ fn content_encrypt_benchmark(c: &mut Criterion) {
 
 fn content_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
-    let content = vec![0u8; 12_140];
+    let content = vec![0u8; 1215];
     let mut pub_keys = vec![];
 
     for _ in 0..5000 {
@@ -145,7 +145,7 @@ fn content_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
 
 fn content_extract_components_for_key_position_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
-    let content = vec![0u8; 12_140];
+    let content = vec![0u8; 1215];
     let mut pub_keys = vec![];
 
     for _ in 0..5000 {
@@ -166,7 +166,7 @@ fn content_extract_components_for_key_position_benchmark(c: &mut Criterion) {
 
 fn decrypt_content_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
-    let content = vec![0u8; 12_140];
+    let content = vec![0u8; 1215];
     let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
 
     let pub_keys = vec![pub_key];

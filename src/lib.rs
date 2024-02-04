@@ -81,7 +81,7 @@ pub mod bytes_32 {
 ///
 /// ```rust
 /// let key = [0u8; 32];
-/// let content = vec![0u8; 1214];
+/// let content = vec![0u8; 1215];
 ///
 /// let encrypted_content = ordinal_crypto::aead::encrypt(&key, &content).unwrap();
 /// assert_eq!(encrypted_content.len(), content.len() + 40);
@@ -130,7 +130,7 @@ pub mod aead {
 /// ```rust
 /// let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1214];
+/// let content = vec![0u8; 1215];
 ///
 /// let signature = ordinal_crypto::signature::sign(&fingerprint, &content);
 ///
@@ -198,8 +198,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
 /// let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
 ///
-/// // MAX content size: 74.840698 mb
-/// let content = vec![0u8; 1214];
+/// let content = vec![0u8; 1215];
 ///
 /// // MAX pub keys: 65,535
 /// let pub_keys = vec![pub_key];
@@ -232,10 +231,6 @@ pub mod content {
     ) -> Result<Vec<u8>, &'static str> {
         if pub_keys.len() > 65_535 {
             return Err("cannot encrypt for more than 65,535 public keys");
-        }
-
-        if content.len() > 74_840_698 {
-            return Err("cannot encrypt content larger than 74.840698 mb");
         }
 
         // generate components
@@ -305,9 +300,9 @@ pub mod content {
     }
 
     pub fn extract_components_for_key_position(
-        encrypted_content: &[u8],
+        encrypted_content: &Vec<u8>,
         position: u16,
-    ) -> Result<(Vec<u8>, [u8; ENCRYPTED_KEY_LENGTH]), &'static str> {
+    ) -> Result<(&[u8], [u8; ENCRYPTED_KEY_LENGTH]), &'static str> {
         let key_header_bytes: [u8; 2] = match encrypted_content[0..2].try_into() {
             Ok(b) => b,
             Err(_) => return Err("failed to convert keys header to bytes"),
@@ -324,10 +319,7 @@ pub mod content {
             Err(_) => return Err("failed to convert content key to bytes"),
         };
 
-        Ok((
-            encrypted_content[keys_end..].to_vec(),
-            encrypted_content_key,
-        ))
+        Ok((&encrypted_content[keys_end..], encrypted_content_key))
     }
 
     pub fn decrypt(
