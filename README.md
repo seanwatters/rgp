@@ -40,11 +40,11 @@ assert_eq!(decrypted_content, content);
 ## Format
 
 - keys count header = 2 bytes
-- encrypted keys = 72 bytes (max is 65,535 or 4.71852 mb)
+- encrypted keys = pub_keys.len() * 72 bytes (max is 65,535 or 4.71852 mb)
 - one-time public key = 32 bytes
 - nonce = 24 bytes
 - inner signature = 64 bytes (encrypted along with the content to preserve deniability)
-- encrypted content = (..)
+- encrypted content = content.len()
 - Poly1305 MAC = 16 bytes
 
 ## Security
