@@ -1,4 +1,4 @@
-name: Rust
+name: CI
 
 on:
   push:
@@ -15,7 +15,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - uses: arduino/setup-protoc@v2
     - name: Build
       run: cargo build --verbose
     - name: Tests

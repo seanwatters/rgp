@@ -1,6 +1,6 @@
 # Ordinal Crypto 🔐
 
-![ci](https://github.com//ordinarylabs/ordinal-crypto/actions/workflows/rust.yml/badge.svg)
+[![ci](https://github.com//ordinarylabs/ordinal-crypto/actions/workflows/ci.yml/badge.svg)](https://github.com//ordinarylabs/ordinal-crypto/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/ordinal_crypto.svg)](https://crates.io/crates/ordinal_crypto)
 [![docs.rs](https://docs.rs/ordinal_crypto/badge.svg)](https://docs.rs/ordinal_crypto/)
 [![license](https://img.shields.io/github/license/ordinarylabs/ordinal-crypto.svg)](https://github.com/ordinarylabs/ordinal-crypto/blob/main/LICENSE)
