@@ -24,11 +24,12 @@ license = "AGPL-3.0-only"
 name = "ordinal_crypto"
 readme = "README.md"
 repository = "https://github.com/ordinarylabs/ordinal-crypto"
-version = "0.7.0"
+version = "0.7.1"
 
 [dependencies]
 base64 = "0.21.2"
 blake2 = "0.10.6"
+chacha20 = "0.9.1"
 chacha20poly1305 = "0.10.1"
 ed25519-dalek = { version = "2.0.0", features = ["rand_core"] }
 rand_core = "0.6.4"
@@ -36,7 +37,7 @@ rayon = "1.8.1"
 x25519-dalek = { version =  "2.0.0", features = ["static_secrets"] }
 
 [dev-dependencies]
-criterion = { version = "0.4", features = ["html_reports"] }
+criterion = { version = "0.5.1", features = ["html_reports"] }
 
 [[bench]]
 name = "lib"

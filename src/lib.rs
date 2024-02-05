@@ -139,7 +139,6 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
     let priv_key = x25519_dalek::StaticSecret::random_from_rng(rand_core::OsRng);
     let pub_key = x25519_dalek::PublicKey::from(&priv_key);
 
-    // TODO: zeroize
     (*priv_key.as_bytes(), *pub_key.as_bytes())
 }
 
@@ -169,16 +168,14 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// assert_eq!(decrypted_content, content);
 /// ```
 pub mod content {
+    use chacha20::cipher::StreamCipher;
     use chacha20poly1305::aead::{Aead, AeadCore, KeyInit};
     use rayon::prelude::*;
     use std::thread;
 
     const NONCE_LEN: usize = 24;
-    const MAC_LEN: usize = 16;
     const KEY_LEN: usize = 32;
-    const ENCRYPTED_KEY_LEN: usize = KEY_LEN + MAC_LEN;
     const SIGNATURE_LEN: usize = 64;
-    const ENCRYPTED_KEY_WITH_NONCE_LEN: usize = NONCE_LEN + ENCRYPTED_KEY_LEN;
 
     pub fn encrypt(
         fingerprint: [u8; 32],
@@ -232,27 +229,26 @@ pub mod content {
             }
         });
 
-        let mut encrypted_keys = vec![0u8; ENCRYPTED_KEY_WITH_NONCE_LEN * pub_key_count];
+        let mut encrypted_keys = vec![0u8; KEY_LEN * pub_key_count];
 
         // encrypt keys
         encrypted_keys
-            .par_chunks_mut(ENCRYPTED_KEY_WITH_NONCE_LEN)
+            .par_chunks_mut(KEY_LEN)
             .enumerate()
             .for_each(|(i, chunk)| {
                 let shared_secret = e_priv_key
                     .diffie_hellman(&x25519_dalek::PublicKey::from(pub_keys[i]))
                     .to_bytes();
 
-                let key_cipher = chacha20poly1305::XChaCha20Poly1305::new(&shared_secret.into());
-                let key_nonce =
-                    chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
-                let encrypted_content_key = key_cipher
-                    .encrypt(&key_nonce, content_key.as_ref())
-                    .expect("failed to encrypt key");
+                let mut key_cipher = {
+                    use chacha20::cipher::KeyIvInit;
+                    chacha20::XChaCha20::new(&shared_secret.into(), &nonce)
+                };
 
-                chunk[0..NONCE_LEN].copy_from_slice(&key_nonce);
-                chunk[NONCE_LEN..ENCRYPTED_KEY_WITH_NONCE_LEN]
-                    .copy_from_slice(&encrypted_content_key);
+                let mut buffer = content_key.to_vec();
+                key_cipher.apply_keystream(&mut buffer);
+
+                chunk[0..KEY_LEN].copy_from_slice(&buffer);
             });
 
         out.extend(encrypted_keys);
@@ -301,12 +297,11 @@ pub mod content {
             };
 
         let keys_start = keys_header_start + keys_header_len;
-        let encrypted_key_start = keys_start + (position as usize * ENCRYPTED_KEY_WITH_NONCE_LEN);
+        let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
 
-        let encrypted_content_start = keys_start + (keys_count * ENCRYPTED_KEY_WITH_NONCE_LEN);
+        let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
 
-        encrypted_content
-            .drain(encrypted_key_start + ENCRYPTED_KEY_WITH_NONCE_LEN..encrypted_content_start);
+        encrypted_content.drain(encrypted_key_start + KEY_LEN..encrypted_content_start);
         encrypted_content.drain(keys_header_start..encrypted_key_start);
 
         Ok(encrypted_content)
@@ -317,7 +312,7 @@ pub mod content {
         priv_key: [u8; KEY_LEN],
         encrypted_content: &[u8],
     ) -> Result<Vec<u8>, &'static str> {
-        let content_nonce: [u8; NONCE_LEN] = match encrypted_content[0..NONCE_LEN].try_into() {
+        let nonce: [u8; NONCE_LEN] = match encrypted_content[0..NONCE_LEN].try_into() {
             Ok(key) => key,
             Err(_) => return Err("failed to convert nonce to bytes"),
         };
@@ -328,37 +323,29 @@ pub mod content {
                 Err(_) => return Err("failed to convert pub key to bytes"),
             };
 
-        let encrypted_key: [u8; ENCRYPTED_KEY_WITH_NONCE_LEN] = match encrypted_content
-            [NONCE_LEN + KEY_LEN..NONCE_LEN + KEY_LEN + ENCRYPTED_KEY_WITH_NONCE_LEN]
-            .try_into()
-        {
-            Ok(key) => key,
-            Err(_) => return Err("failed to convert encrypted key to bytes"),
-        };
+        let mut content_key =
+            encrypted_content[NONCE_LEN + KEY_LEN..NONCE_LEN + KEY_LEN + KEY_LEN].to_vec();
 
         let priv_key = x25519_dalek::StaticSecret::from(priv_key);
         let shared_secret = priv_key.diffie_hellman(&ot_pub_key.into()).to_bytes();
 
-        let key_cipher = chacha20poly1305::XChaCha20Poly1305::new(&shared_secret.into());
-        let key_nonce: [u8; NONCE_LEN] = match encrypted_key[0..NONCE_LEN].try_into() {
-            Ok(n) => n,
-            Err(_) => return Err("failed to convert key nonce into bytes"),
+        let mut key_cipher = {
+            use chacha20::cipher::KeyIvInit;
+            chacha20::XChaCha20::new(&shared_secret.into(), &nonce.into())
         };
 
-        let content_key: [u8; KEY_LEN] =
-            match key_cipher.decrypt(&key_nonce.into(), &encrypted_key[NONCE_LEN..]) {
-                Ok(ck) => match ck[0..KEY_LEN].try_into() {
-                    Ok(key_bytes) => key_bytes,
-                    Err(_) => return Err("failed to convert content key to bytes"),
-                },
-                Err(_) => return Err("failed to decrypt content key"),
-            };
+        key_cipher.apply_keystream(&mut content_key);
+
+        let content_key: [u8; KEY_LEN] = match content_key.try_into() {
+            Ok(key_bytes) => key_bytes,
+            Err(_) => return Err("failed to convert content key to bytes"),
+        };
 
         let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key.into());
 
         match content_cipher.decrypt(
-            &content_nonce.into(),
-            &encrypted_content[NONCE_LEN + KEY_LEN + ENCRYPTED_KEY_WITH_NONCE_LEN..],
+            &nonce.into(),
+            &encrypted_content[NONCE_LEN + KEY_LEN + KEY_LEN..],
         ) {
             Ok(mut content) => {
                 let signature = content.split_off(content.len() - SIGNATURE_LEN);
