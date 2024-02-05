@@ -19,9 +19,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #![doc = include_str!("../README.md")]
 
-const NONCE_SIZE: usize = 24;
-const ENCRYPTED_KEY_LENGTH: usize = 72;
-
 /// for converting any string into 32 bytes.
 ///
 /// ```rust
@@ -77,54 +74,6 @@ pub mod bytes_32 {
     }
 }
 
-/// for securely encrypting/decrypting remotely stored data.
-///
-/// ```rust
-/// let key = [0u8; 32];
-/// let content = vec![0u8; 1215];
-///
-/// let encrypted_content = ordinal_crypto::aead::encrypt(&key, &content).unwrap();
-/// assert_eq!(encrypted_content.len(), content.len() + 40);
-///
-/// let decrypted_content = ordinal_crypto::aead::decrypt(&key, &encrypted_content).unwrap();
-/// assert_eq!(decrypted_content, content);
-/// ```
-pub mod aead {
-    use super::NONCE_SIZE;
-    use chacha20poly1305::aead::{Aead, AeadCore, KeyInit};
-
-    pub fn encrypt(key: &[u8; 32], content: &[u8]) -> Result<Vec<u8>, &'static str> {
-        let cipher = chacha20poly1305::XChaCha20Poly1305::new(key.into());
-        let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
-
-        let ciphertext = match cipher.encrypt(&nonce, content) {
-            Ok(ct) => ct,
-            Err(_) => return Err("failed to encrypt"),
-        };
-
-        let mut out = vec![];
-
-        out.extend(nonce);
-        out.extend(ciphertext);
-
-        Ok(out)
-    }
-
-    pub fn decrypt(key: &[u8; 32], encrypted_content: &[u8]) -> Result<Vec<u8>, &'static str> {
-        let cipher = chacha20poly1305::XChaCha20Poly1305::new(key.into());
-
-        let nonce_as_bytes: [u8; NONCE_SIZE] = match encrypted_content[0..NONCE_SIZE].try_into() {
-            Ok(v) => v,
-            Err(_) => return Err("failed to convert block one to fixed bytes"),
-        };
-
-        match cipher.decrypt(&nonce_as_bytes.into(), &encrypted_content[NONCE_SIZE..]) {
-            Ok(out) => Ok(out),
-            Err(_) => Err("failed to decrypt"),
-        }
-    }
-}
-
 /// for signing/verifying content and request payloads.
 ///
 /// ```rust
@@ -146,6 +95,7 @@ pub mod signature {
     pub fn generate_fingerprint() -> ([u8; 32], [u8; 32]) {
         let fingerprint = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
 
+        // TODO: zeroize
         (
             fingerprint.to_bytes(),
             fingerprint.verifying_key().to_bytes(),
@@ -167,17 +117,17 @@ pub mod signature {
         let signature = ed25519_dalek::Signature::from_bytes(signature);
         let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(verifying_key) {
             Ok(vk) => vk,
-            Err(_) => return Err("failed to generate verifying key from pub signing key"),
+            Err(_) => return Err("failed to convert verifying key"),
         };
 
         match verifying_key.verify(content, &signature) {
             Ok(_) => Ok(()),
-            Err(_) => return Err("failed to verify signature for content"),
+            Err(_) => return Err("failed to verify signature"),
         }
     }
 }
 
-/// for generating pub/priv keys which are used for asymmetrical encryption.
+/// for generating pub/priv keys which are used for DH.
 ///
 /// ```rust
 /// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
@@ -189,6 +139,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
     let priv_key = x25519_dalek::StaticSecret::random_from_rng(rand_core::OsRng);
     let pub_key = x25519_dalek::PublicKey::from(&priv_key);
 
+    // TODO: zeroize
     (*priv_key.as_bytes(), *pub_key.as_bytes())
 }
 
@@ -199,21 +150,18 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
 ///
 /// let content = vec![0u8; 1215];
-///
-/// // MAX pub keys: 65,535
 /// let pub_keys = vec![pub_key];
 ///
-/// let encrypted_content =
-///     ordinal_crypto::content::encrypt(&fingerprint, &content, pub_keys).unwrap();
+/// let mut encrypted_content =
+///     ordinal_crypto::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
 ///
-/// let (encrypted_content, encrypted_key) =
-///     ordinal_crypto::content::extract_components_for_key_position(&encrypted_content, 0)
+/// let encrypted_content =
+///     ordinal_crypto::content::extract_content_for_key_position(&mut encrypted_content, 0)
 ///         .unwrap();
 ///
 /// let decrypted_content = ordinal_crypto::content::decrypt(
 ///     Some(&verifying_key),
 ///     priv_key,
-///     &encrypted_key,
 ///     &encrypted_content,
 /// )
 /// .unwrap();
@@ -221,160 +169,213 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// assert_eq!(decrypted_content, content);
 /// ```
 pub mod content {
-    use super::{ENCRYPTED_KEY_LENGTH, NONCE_SIZE};
     use chacha20poly1305::aead::{Aead, AeadCore, KeyInit};
+    use rayon::prelude::*;
+    use std::thread;
+
+    const NONCE_LEN: usize = 24;
+    const MAC_LEN: usize = 16;
+    const KEY_LEN: usize = 32;
+    const ENCRYPTED_KEY_LEN: usize = KEY_LEN + MAC_LEN;
+    const SIGNATURE_LEN: usize = 64;
+    const ENCRYPTED_KEY_WITH_NONCE_LEN: usize = NONCE_LEN + ENCRYPTED_KEY_LEN;
 
     pub fn encrypt(
-        fingerprint: &[u8; 32],
-        content: &Vec<u8>,
-        pub_keys: Vec<[u8; 32]>,
+        fingerprint: [u8; 32],
+        mut content: Vec<u8>,
+        pub_keys: &Vec<[u8; KEY_LEN]>,
     ) -> Result<Vec<u8>, &'static str> {
-        if pub_keys.len() > 65_535 {
-            return Err("cannot encrypt for more than 65,535 public keys");
-        }
+        let mut out = vec![];
 
         // generate components
         let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
         let content_key = chacha20poly1305::XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
 
-        let (e_priv_key, ot_pub_key) = super::generate_exchange_keys();
-        let e_priv_key = x25519_dalek::StaticSecret::from(e_priv_key);
+        let e_priv_key = x25519_dalek::StaticSecret::random_from_rng(rand_core::OsRng);
+        let ot_pub_key = x25519_dalek::PublicKey::from(&e_priv_key);
 
-        let content_key_as_bytes: [u8; 32] = match content_key.try_into() {
-            Ok(v) => v,
-            Err(_) => return Err("failed to convert content key to fixed bytes"),
+        out.extend(&nonce);
+        out.extend(ot_pub_key.as_bytes());
+
+        // create keys header
+        let pub_key_count = pub_keys.len();
+        let keys_header = match pub_key_count {
+            0..=255 => vec![1, pub_key_count as u8],
+            256..=65_535 => {
+                let mut h = vec![2];
+                h.extend_from_slice(&(pub_key_count as u16).to_be_bytes());
+                h
+            }
+            65_536..=4_294_967_295 => {
+                let mut h = vec![4];
+                h.extend_from_slice(&(pub_key_count as u32).to_be_bytes());
+                h
+            }
+            _ => {
+                let mut h = vec![8];
+                h.extend_from_slice(&(pub_key_count as u64).to_be_bytes());
+                h
+            }
         };
 
-        let pub_key_count = pub_keys.len();
-        let out_len =
-            2 + (ENCRYPTED_KEY_LENGTH * pub_key_count) + 32 + NONCE_SIZE + 64 + content.len() + 16;
-
-        let mut out = Vec::with_capacity(out_len);
-
-        // keys count header is first 2 bytes
-        let keys_header = (pub_key_count as u16).to_be_bytes();
         out.extend(&keys_header);
 
-        for pub_key in pub_keys {
-            let shared_secret = e_priv_key
-                .diffie_hellman(&x25519_dalek::PublicKey::from(pub_key))
-                .to_bytes();
+        // sign/encrypt content
+        let sign_and_encrypt_handle = thread::spawn(move || {
+            let signature = super::signature::sign(&fingerprint, &content);
+            content.extend(signature);
 
-            let key_cipher = chacha20poly1305::XChaCha20Poly1305::new(&shared_secret.into());
-            let key_nonce =
-                chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
-            let encrypted_content_key =
-                match key_cipher.encrypt(&key_nonce, content_key_as_bytes.as_ref()) {
-                    Ok(ek) => ek,
-                    Err(_) => return Err("failed to encrypt key"),
-                };
+            let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key);
+            match content_cipher.encrypt(&nonce, content.as_ref()) {
+                Ok(encrypted_content) => return Ok(encrypted_content),
+                Err(_) => return Err("failed to encrypt content"),
+            }
+        });
 
-            // 72 bytes per recipient
-            out.extend(&key_nonce);
-            out.extend(&encrypted_content_key);
-        }
+        let mut encrypted_keys = vec![0u8; ENCRYPTED_KEY_WITH_NONCE_LEN * pub_key_count];
 
-        // fist 32 bytes after keys
-        out.extend(&ot_pub_key);
+        // encrypt keys
+        encrypted_keys
+            .par_chunks_mut(ENCRYPTED_KEY_WITH_NONCE_LEN)
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                let shared_secret = e_priv_key
+                    .diffie_hellman(&x25519_dalek::PublicKey::from(pub_keys[i]))
+                    .to_bytes();
 
-        // next 24 bytes
-        out.extend(&nonce);
+                let key_cipher = chacha20poly1305::XChaCha20Poly1305::new(&shared_secret.into());
+                let key_nonce =
+                    chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
+                let encrypted_content_key = key_cipher
+                    .encrypt(&key_nonce, content_key.as_ref())
+                    .expect("failed to encrypt key");
 
-        // sign inner
-        let mut to_be_encrypted = Vec::with_capacity(64 + content.len());
+                chunk[0..NONCE_LEN].copy_from_slice(&key_nonce);
+                chunk[NONCE_LEN..ENCRYPTED_KEY_WITH_NONCE_LEN]
+                    .copy_from_slice(&encrypted_content_key);
+            });
 
-        to_be_encrypted.extend(&super::signature::sign(fingerprint, content));
-        to_be_encrypted.extend(content);
+        out.extend(encrypted_keys);
 
-        // encrypt
-        let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key);
-        let encrypted_content = match content_cipher.encrypt(&nonce, to_be_encrypted.as_ref()) {
-            Ok(ec) => ec,
-            Err(_) => return Err("failed to encrypt content"),
-        };
-
-        // all remaining bytes
-        out.extend(&encrypted_content);
+        let encrypted_content = sign_and_encrypt_handle.join().unwrap()?;
+        out.extend(encrypted_content);
 
         Ok(out)
     }
 
-    pub fn extract_components_for_key_position(
-        encrypted_content: &Vec<u8>,
+    pub fn extract_content_for_key_position(
+        encrypted_content: &mut Vec<u8>,
         position: u16,
-    ) -> Result<(&[u8], [u8; ENCRYPTED_KEY_LENGTH]), &'static str> {
-        let key_header_bytes: [u8; 2] = match encrypted_content[0..2].try_into() {
-            Ok(b) => b,
-            Err(_) => return Err("failed to convert keys header to bytes"),
-        };
+    ) -> Result<&[u8], &'static str> {
+        let ot_pub_key_start = NONCE_LEN;
+        let keys_header_start = ot_pub_key_start + KEY_LEN;
 
-        let key_count = u16::from_be_bytes(key_header_bytes) as usize;
-        let keys_end = key_count * ENCRYPTED_KEY_LENGTH + 2;
+        let (keys_header_len, keys_count): (usize, usize) =
+            match encrypted_content[keys_header_start] {
+                1 => (2, encrypted_content[keys_header_start + 1] as usize),
+                2 => (
+                    3,
+                    u16::from_be_bytes(
+                        encrypted_content[keys_header_start + 1..keys_header_start + 3]
+                            .try_into()
+                            .unwrap(),
+                    ) as usize,
+                ),
+                4 => (
+                    5,
+                    u32::from_be_bytes(
+                        encrypted_content[keys_header_start + 1..keys_header_start + 5]
+                            .try_into()
+                            .unwrap(),
+                    ) as usize,
+                ),
+                8 => (
+                    9,
+                    u64::from_be_bytes(
+                        encrypted_content[keys_header_start + 1..keys_header_start + 9]
+                            .try_into()
+                            .unwrap(),
+                    ) as usize,
+                ),
+                _ => return Err("unknown keys header value"),
+            };
 
-        let encrypted_content_key = match encrypted_content
-            [(2 + position as usize)..(ENCRYPTED_KEY_LENGTH + 2 + position as usize)]
-            .try_into()
-        {
-            Ok(b) => b,
-            Err(_) => return Err("failed to convert content key to bytes"),
-        };
+        let keys_start = keys_header_start + keys_header_len;
+        let encrypted_key_start = keys_start + (position as usize * ENCRYPTED_KEY_WITH_NONCE_LEN);
 
-        Ok((&encrypted_content[keys_end..], encrypted_content_key))
+        let encrypted_content_start = keys_start + (keys_count * ENCRYPTED_KEY_WITH_NONCE_LEN);
+
+        encrypted_content
+            .drain(encrypted_key_start + ENCRYPTED_KEY_WITH_NONCE_LEN..encrypted_content_start);
+        encrypted_content.drain(keys_header_start..encrypted_key_start);
+
+        Ok(encrypted_content)
     }
 
     pub fn decrypt(
         verifying_key: Option<&[u8; 32]>,
-        priv_key: [u8; 32],
-
-        encrypted_key: &[u8; ENCRYPTED_KEY_LENGTH],
+        priv_key: [u8; KEY_LEN],
         encrypted_content: &[u8],
     ) -> Result<Vec<u8>, &'static str> {
-        let pub_key: [u8; 32] = match encrypted_content[0..32].try_into() {
+        let content_nonce: [u8; NONCE_LEN] = match encrypted_content[0..NONCE_LEN].try_into() {
             Ok(key) => key,
-            Err(_) => return Err("failed to convert pub key to fixed bytes bytes"),
+            Err(_) => return Err("failed to convert nonce to bytes"),
         };
 
-        let nonce: [u8; NONCE_SIZE] = match encrypted_content[32..32 + NONCE_SIZE].try_into() {
+        let ot_pub_key: [u8; KEY_LEN] =
+            match encrypted_content[NONCE_LEN..NONCE_LEN + KEY_LEN].try_into() {
+                Ok(key) => key,
+                Err(_) => return Err("failed to convert pub key to bytes"),
+            };
+
+        let encrypted_key: [u8; ENCRYPTED_KEY_WITH_NONCE_LEN] = match encrypted_content
+            [NONCE_LEN + KEY_LEN..NONCE_LEN + KEY_LEN + ENCRYPTED_KEY_WITH_NONCE_LEN]
+            .try_into()
+        {
             Ok(key) => key,
-            Err(_) => return Err("failed to convert nonce to fixed bytes bytes"),
+            Err(_) => return Err("failed to convert encrypted key to bytes"),
         };
 
         let priv_key = x25519_dalek::StaticSecret::from(priv_key);
-        let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
+        let shared_secret = priv_key.diffie_hellman(&ot_pub_key.into()).to_bytes();
 
         let key_cipher = chacha20poly1305::XChaCha20Poly1305::new(&shared_secret.into());
-        let key_nonce: [u8; NONCE_SIZE] = match encrypted_key[0..NONCE_SIZE].try_into() {
+        let key_nonce: [u8; NONCE_LEN] = match encrypted_key[0..NONCE_LEN].try_into() {
             Ok(n) => n,
             Err(_) => return Err("failed to convert key nonce into bytes"),
         };
-        let content_key: [u8; 32] =
-            match key_cipher.decrypt(&key_nonce.into(), &encrypted_key[NONCE_SIZE..]) {
-                Ok(ck) => match ck[0..32].try_into() {
+
+        let content_key: [u8; KEY_LEN] =
+            match key_cipher.decrypt(&key_nonce.into(), &encrypted_key[NONCE_LEN..]) {
+                Ok(ck) => match ck[0..KEY_LEN].try_into() {
                     Ok(key_bytes) => key_bytes,
-                    Err(_) => return Err("failed to convert content key to fixed bytes bytes"),
+                    Err(_) => return Err("failed to convert content key to bytes"),
                 },
                 Err(_) => return Err("failed to decrypt content key"),
             };
 
         let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key.into());
 
-        match content_cipher.decrypt(&nonce.into(), &encrypted_content[32 + NONCE_SIZE..]) {
-            Ok(content) => match verifying_key {
-                Some(verifying_key) => {
-                    let signature_as_bytes: [u8; 64] = match content[0..64].try_into() {
-                        Ok(v) => v,
-                        Err(_) => return Err("failed to convert signature to fixed bytes"),
-                    };
+        match content_cipher.decrypt(
+            &content_nonce.into(),
+            &encrypted_content[NONCE_LEN + KEY_LEN + ENCRYPTED_KEY_WITH_NONCE_LEN..],
+        ) {
+            Ok(mut content) => {
+                let signature = content.split_off(content.len() - SIGNATURE_LEN);
 
-                    let content = content[64..].to_vec();
+                match verifying_key {
+                    Some(verifying_key) => {
+                        let signature_as_bytes: [u8; SIGNATURE_LEN] = match signature.try_into() {
+                            Ok(v) => v,
+                            Err(_) => return Err("failed to convert signature to bytes"),
+                        };
 
-                    match super::signature::verify(&signature_as_bytes, verifying_key, &content) {
-                        Ok(_) => Ok(content),
-                        Err(_) => Err("failed to verify signature"),
+                        super::signature::verify(&signature_as_bytes, verifying_key, &content)?;
+                        Ok(content)
                     }
+                    None => Ok(content),
                 }
-                None => Ok(content[64..].to_vec()),
-            },
+            }
             Err(_) => return Err("failed to decrypt content"),
         }
     }

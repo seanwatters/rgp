@@ -15,21 +15,18 @@ let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
 let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
 
 let content = vec![0u8; 1215];
-
-// MAX pub keys: 65,535
 let pub_keys = vec![pub_key];
 
-let encrypted_content =
-    ordinal_crypto::content::encrypt(&fingerprint, &content, pub_keys).unwrap();
+let mut encrypted_content =
+    ordinal_crypto::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
 
-let (encrypted_content, encrypted_key) =
-    ordinal_crypto::content::extract_components_for_key_position(&encrypted_content, 0)
+let encrypted_content =
+    ordinal_crypto::content::extract_content_for_key_position(&mut encrypted_content, 0)
         .unwrap();
 
 let decrypted_content = ordinal_crypto::content::decrypt(
     Some(&verifying_key),
     priv_key,
-    &encrypted_key,
     &encrypted_content,
 )
 .unwrap();
@@ -39,10 +36,15 @@ assert_eq!(decrypted_content, content);
 
 ## Format
 
-- keys count header = 2 bytes
-- encrypted keys = pub_keys.len() * 72 bytes (max is 65,535 or 4.71852 mb)
-- one-time public key = 32 bytes
 - nonce = 24 bytes
+- one-time public key = 32 bytes
+- keys count header = 2-9 bytes
+    - size = 1 byte (1 | 2 | 4 | 8)
+    - big endian bytes = 1-8 bytes
+- encrypted keys = pub_keys.len() * 72 bytes (max is 65,535 or 4.71852 mb)
+    - nonce = 24 bytes
+    - encrypted key = 32 bytes
+    - Poly1305 MAC = 16 bytes
 - inner signature = 64 bytes (encrypted along with the content to preserve deniability)
 - encrypted content = content.len()
 - Poly1305 MAC = 16 bytes
