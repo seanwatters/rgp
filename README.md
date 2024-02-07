@@ -65,11 +65,11 @@ assert_eq!(decrypted_content, content);
 
 For the 8mb example with 20,000 recipients, on my M1 MacBook Pro
 
-| Operation | Time      |
-| --------- | --------- |
-| encrypt   | 101.76 ms |
-| extract   | 486.00 µs |
-| decrypt   | 44.729 ms |
+| Operation       | Time      |
+| --------------- | --------- |
+| multi_encrypt   | 101.76 ms |
+| extract         | 486.00 µs |
+| decrypt         | 44.729 ms |
 
 Doing the equivalent operation for just 1 recipient on 8mb is
 
@@ -78,7 +78,9 @@ Doing the equivalent operation for just 1 recipient on 8mb is
 | encrypt   | 61.537 ms |
 | decrypt   | 44.729 ms |
 
-The signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms respectively, when benchmarked in isolation.
+When benchmarked in isolation, the signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms, respectively.
+
+To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/RGP/actions/workflows/ci.yml) under job/Benchmark.
 
 **NOTE:** the content signing/encryption logic is done in a separate thread from the per-recipient **content key** encryption, and the **content key** encryption work is done in a rayon `par_chunks_mut` loop, so the number of threads does have an impact on performance.
 
