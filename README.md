@@ -61,6 +61,25 @@ assert_eq!(decrypted_content, content);
     - Generate **shared secret** with **recipient public key** and **ephemeral private key**
     - Encrypt **one-time content key** with **shared secret**
 
+## Ciphersuite
+
+- ChaCha20Poly1305 for content
+- ChaCha20 for **one-time content key** encryption
+- X25519 for Diffie-Hellman **shared secret** generation
+- Ed25519 for **signatures**
+
+## Encrypted Format
+
+- **nonce** = 24 bytes
+- **one-time public key** = 32 bytes
+- keys count (2-9 bytes)
+    - int size = 1 byte (1 for u8 | 2 for u16 | 4 for u32 | 8 for u64)
+    - big endian int = 1-8 bytes
+- encrypted keys = pub_keys.len() * 32 bytes
+- encrypted content = content.len()
+- **signature** = 64 bytes (encrypted along with the content to preserve deniability)
+- Poly1305 MAC = 16 bytes
+
 ## Performance
 
 For the 8mb example with 20,000 recipients, on my M1 MacBook Pro
@@ -83,25 +102,6 @@ When benchmarked in isolation, the signing operation (internal to the `encrypt` 
 To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/RGP/actions/workflows/ci.yml) under job/Benchmark.
 
 **NOTE:** the content signing/encryption logic is done in a separate thread from the per-recipient **content key** encryption, and the **content key** encryption work is done in a rayon `par_chunks_mut` loop, so the number of threads does have an impact on performance.
-
-## Ciphersuite
-
-- ChaCha20Poly1305 for content
-- ChaCha20 for **one-time content key** encryption
-- X25519 for Diffie-Hellman **shared secret** generation
-- Ed25519 for **signatures**
-
-## Encrypted Format
-
-- **nonce** = 24 bytes
-- **one-time public key** = 32 bytes
-- keys count (2-9 bytes)
-    - int size = 1 byte (1 for u8 | 2 for u16 | 4 for u32 | 8 for u64)
-    - big endian int = 1-8 bytes
-- encrypted keys = pub_keys.len() * 32 bytes
-- encrypted content = content.len()
-- **signature** = 64 bytes (encrypted along with the content to preserve deniability)
-- Poly1305 MAC = 16 bytes
 
 ## License
 
