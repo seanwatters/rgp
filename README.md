@@ -65,7 +65,7 @@ assert_eq!(decrypted_content, content);
 
 - ChaCha20Poly1305 for content
 - ChaCha20 for **one-time content key** encryption
-- x25519 for Diffie-Hellman **shared secret** generation
+- X25519 for Diffie-Hellman **shared secret** generation
 - Ed25519 for **signatures**
 
 ## Encrypted Format
