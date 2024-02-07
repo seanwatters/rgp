@@ -11,13 +11,10 @@
 ## Usage
 
 ```rust
-let (our_priv_key, our_pub_key) = rgp::generate_exchange_keys();
 let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
 
+let (our_priv_key, our_pub_key) = rgp::generate_exchange_keys();
 let mut pub_keys = vec![our_pub_key];
-
-// 8mb
-let content = vec![0u8; 8_000_000];
 
 // 20,000 recipients
 for _ in 0..20_000 {
@@ -25,10 +22,21 @@ for _ in 0..20_000 {
     pub_keys.push(pub_key)
 }
 
-let mut encrypted_content =
-    rgp::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
+// 8mb
+let content = vec![0u8; 8_000_000];
 
-rgp::content::extract_content_for_key_position(&mut encrypted_content, 0).unwrap();
+let mut encrypted_content = rgp::content::encrypt(
+    fingerprint,
+    content.clone(),
+    &pub_keys
+)
+.unwrap();
+
+rgp::content::extract_content_for_key_position(
+    &mut encrypted_content,
+    0
+)
+.unwrap();
 
 let decrypted_content = rgp::content::decrypt(
     Some(&verifying_key),
@@ -45,6 +53,7 @@ assert_eq!(decrypted_content, content);
 1. Generate one-time and ephemeral components
     - **one-time public key**
     - **ephemeral private key**
+    - **nonce**
     - **one-time content key**
 2. Sign plaintext to generate **content signature**
 3. Encrypt plaintext and **content signature** with **one-time content key**
@@ -61,14 +70,14 @@ assert_eq!(decrypted_content, content);
 
 ## Encrypted Format
 
-- nonce = 24 bytes
-- one-time public key = 32 bytes
+- **nonce** = 24 bytes
+- **one-time public key** = 32 bytes
 - keys count (2-9 bytes)
     - int size = 1 byte (1 for u8 | 2 for u16 | 4 for u32 | 8 for u64)
     - big endian int = 1-8 bytes
 - encrypted keys = pub_keys.len() * 32 bytes
 - encrypted content = content.len()
-- inner signature = 64 bytes (encrypted along with the content to preserve deniability)
+- **signature** = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
 
 ## License
