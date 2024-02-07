@@ -51,10 +51,10 @@ assert_eq!(decrypted_content, content);
 ## Process
 
 1. Generate one-time and ephemeral components
-    - **one-time public key**
-    - **ephemeral private key**
     - **nonce**
     - **one-time content key**
+    - **ephemeral private key**
+    - **one-time public key**
 2. Sign plaintext to generate **content signature**
 3. Encrypt plaintext and **content signature** with **one-time content key**
 4. Encrypt **one-time content key** for all recipients
@@ -63,10 +63,10 @@ assert_eq!(decrypted_content, content);
 
 ## Ciphersuite
 
-- ChaCha20Poly1305 for content
-- ChaCha20 for **one-time content key** encryption
-- X25519 for Diffie-Hellman **shared secret** generation
 - Ed25519 for **signatures**
+- XChaCha20Poly1305 for content
+- X25519 for Diffie-Hellman **shared secret** generation
+- XChaCha20 for **one-time content key** encryption
 
 ## Performance
 
