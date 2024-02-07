@@ -7,41 +7,6 @@ This file may not be copied, modified, or distributed except according to those 
 
 #![doc = include_str!("../README.md")]
 
-/// for converting 32 byte keys to/from strings.
-///
-/// ```rust
-/// let key = [0u8; 32];
-///
-/// let key_str = rgp::bytes_32::encode(&key);
-///
-/// assert_eq!(key_str, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
-///
-/// let decoded_key = rgp::bytes_32::decode(&key_str).unwrap();
-///
-/// assert_eq!(decoded_key, key);
-///```
-pub mod bytes_32 {
-    use base64::{engine::general_purpose::STANDARD as b64, Engine};
-
-    pub fn encode(val: &[u8; 32]) -> String {
-        b64.encode(val)
-    }
-
-    pub fn decode(val: &str) -> Result<[u8; 32], &'static str> {
-        let decoded_val = match b64.decode(val) {
-            Ok(val) => val,
-            Err(_) => return Err("failed to decode val"),
-        };
-
-        let decoded_val_as_bytes: [u8; 32] = match decoded_val.try_into() {
-            Ok(val) => val,
-            Err(_) => return Err("failed to convert decoded val into fixed bytes"),
-        };
-
-        Ok(decoded_val_as_bytes)
-    }
-}
-
 /// for signing/verifying content.
 ///
 /// ```rust

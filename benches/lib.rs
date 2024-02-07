@@ -7,26 +7,6 @@ This file may not be copied, modified, or distributed except according to those 
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
-fn bytes_32_encode_benchmark(c: &mut Criterion) {
-    let pub_key = [0u8; 32];
-
-    c.bench_function("bytes_32_encode", |b| {
-        b.iter(|| {
-            rgp::bytes_32::encode(&pub_key);
-        })
-    });
-}
-
-fn bytes_32_decode_benchmark(c: &mut Criterion) {
-    let str_key = rgp::bytes_32::encode(&[0u8; 32]);
-
-    c.bench_function("bytes_32_decode", |b| {
-        b.iter(|| {
-            rgp::bytes_32::decode(&str_key).unwrap();
-        })
-    });
-}
-
 fn signature_generate_fingerprint_benchmark(c: &mut Criterion) {
     c.bench_function("signature_generate_fingerprint", |b| {
         b.iter(|| {
@@ -138,8 +118,6 @@ fn decrypt_content_benchmark(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bytes_32_encode_benchmark,
-    bytes_32_decode_benchmark,
     signature_generate_fingerprint_benchmark,
     signature_sign_benchmark,
     signature_verify_benchmark,
