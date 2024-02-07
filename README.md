@@ -61,6 +61,27 @@ assert_eq!(decrypted_content, content);
     - Generate **shared secret** with **recipient public key** and **ephemeral private key**
     - Encrypt **one-time content key** with **shared secret**
 
+## Performance
+
+For the 8mb example with 20,000 recipients, on my M1 MacBook Pro
+
+| Operation | Time      |
+| --------- | --------- |
+| encrypt   | 101.76 ms |
+| extract   | 486.00 µs |
+| decrypt   | 44.729 ms |
+
+Doing the equivalent operation for just 1 recipient on 8mb is
+
+| Operation | Time      |
+| --------- | --------- |
+| encrypt   | 61.537 ms |
+| decrypt   | 44.729 ms |
+
+The signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms when benchmarked in isolation.
+
+NOTE: the content signing/encryption logic is done in a separate thread from the per-recipient **content key** encryption, and the **content key** encryption work is done in a rayon `par_chunks_mut` loop, so the number of threads does have an impact on performance.
+
 ## Ciphersuite
 
 - ChaCha20Poly1305 for content
