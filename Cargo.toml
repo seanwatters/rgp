@@ -5,11 +5,11 @@
 
 [package]
 authors = ["sean watters <sean@watters.io>"]
-description = "Reasonably Good Privacy"
+description = "\"Reasonably Good Privacy\""
 categories = ["cryptography"]
 edition = "2021"
 homepage = "https://github.com/ordinarylabs"
-keywords = ["encryption", "e2ee"]
+keywords = ["e2ee", "encryption"]
 license = "MIT"
 name = "rgp"
 readme = "README.md"

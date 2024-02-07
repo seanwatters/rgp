@@ -1,12 +1,12 @@
 # RGP
 
 [![ci](https://github.com//ordinarylabs/RGP/actions/workflows/ci.yml/badge.svg)](https://github.com//ordinarylabs/RGP/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/ordinarylabs/RGP.svg)](https://github.com/ordinarylabs/RGP/blob/main/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/rgp.svg)](https://crates.io/crates/rgp)
 [![docs.rs](https://docs.rs/rgp/badge.svg)](https://docs.rs/rgp/)
-[![license](https://img.shields.io/github/license/ordinarylabs/RGP.svg)](https://github.com/ordinarylabs/RGP/blob/main/LICENSE)
 [![dependency status](https://deps.rs/repo/github/ordinarylabs/RGP/status.svg)](https://deps.rs/repo/github/ordinarylabs/RGP)
 
-Reasonably Good Privacy
+"Reasonably Good Privacy"
 
 ## Usage
 
@@ -28,9 +28,7 @@ for _ in 0..20_000 {
 let mut encrypted_content =
     rgp::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
 
-let encrypted_content =
-    rgp::content::extract_content_for_key_position(&mut encrypted_content, 0)
-        .unwrap();
+rgp::content::extract_content_for_key_position(&mut encrypted_content, 0).unwrap();
 
 let decrypted_content = rgp::content::decrypt(
     Some(&verifying_key),
@@ -42,7 +40,26 @@ let decrypted_content = rgp::content::decrypt(
 assert_eq!(decrypted_content, content);
 ```
 
-## Format
+## Process
+
+1. Generate one-time and ephemeral components
+    - **one-time public key**
+    - **ephemeral private key**
+    - **one-time content key**
+2. Sign plaintext to generate **content signature**
+3. Encrypt plaintext and **content signature** with **one-time content key**
+4. Encrypt **one-time content key** for all recipients
+    - Generate **shared secret** with **recipient public key** and **ephemeral private key**
+    - Encrypt **one-time content key** with **shared secret**
+
+## Ciphersuite
+
+- ChaCha20Poly1305 for content
+- ChaCha20 for **one-time content key** encryption
+- x25519 for Diffie-Hellman **shared secret** generation
+- Ed25519 for **signatures**
+
+## Encrypted Format
 
 - nonce = 24 bytes
 - one-time public key = 32 bytes
@@ -50,8 +67,8 @@ assert_eq!(decrypted_content, content);
     - int size = 1 byte (1 for u8 | 2 for u16 | 4 for u32 | 8 for u64)
     - big endian int = 1-8 bytes
 - encrypted keys = pub_keys.len() * 32 bytes
-- inner signature = 64 bytes (encrypted along with the content to preserve deniability)
 - encrypted content = content.len()
+- inner signature = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
 
 ## License
