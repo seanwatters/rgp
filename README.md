@@ -80,7 +80,7 @@ Doing the equivalent operation for just 1 recipient on 8mb is
 
 The signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms respectively, when benchmarked in isolation.
 
-NOTE: the content signing/encryption logic is done in a separate thread from the per-recipient **content key** encryption, and the **content key** encryption work is done in a rayon `par_chunks_mut` loop, so the number of threads does have an impact on performance.
+**NOTE:** the content signing/encryption logic is done in a separate thread from the per-recipient **content key** encryption, and the **content key** encryption work is done in a rayon `par_chunks_mut` loop, so the number of threads does have an impact on performance.
 
 ## Ciphersuite
 
