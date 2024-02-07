@@ -16,14 +16,14 @@ let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
 let (our_priv_key, our_pub_key) = rgp::generate_exchange_keys();
 let mut pub_keys = vec![our_pub_key];
 
+// 8mb
+let content = vec![0u8; 8_000_000];
+
 // 20,000 recipients
 for _ in 0..20_000 {
     let (_, pub_key) = rgp::generate_exchange_keys();
     pub_keys.push(pub_key)
 }
-
-// 8mb
-let content = vec![0u8; 8_000_000];
 
 let mut encrypted_content = rgp::content::encrypt(
     fingerprint,
