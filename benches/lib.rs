@@ -1,50 +1,31 @@
 /*
-ordinal_crypto is the cryptography library for the Ordinal Platform
+Copyright (c) 2024 sean watters
 
-Copyright (C) 2024 sean watters
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+<LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+option. This file may not be copied, modified, or distributed
+except according to those terms.
 */
 
 use criterion::{criterion_group, criterion_main, Criterion};
-
-fn hash_str_benchmark(c: &mut Criterion) {
-    let val = "benching string to 32 bytes";
-
-    c.bench_function("hash_str", |b| {
-        b.iter(|| {
-            ordinal_crypto::hash_str(val);
-        })
-    });
-}
 
 fn bytes_32_encode_benchmark(c: &mut Criterion) {
     let pub_key = [0u8; 32];
 
     c.bench_function("bytes_32_encode", |b| {
         b.iter(|| {
-            ordinal_crypto::bytes_32::encode(&pub_key);
+            rgp::bytes_32::encode(&pub_key);
         })
     });
 }
 
 fn bytes_32_decode_benchmark(c: &mut Criterion) {
-    let str_key = ordinal_crypto::bytes_32::encode(&[0u8; 32]);
+    let str_key = rgp::bytes_32::encode(&[0u8; 32]);
 
     c.bench_function("bytes_32_decode", |b| {
         b.iter(|| {
-            ordinal_crypto::bytes_32::decode(&str_key).unwrap();
+            rgp::bytes_32::decode(&str_key).unwrap();
         })
     });
 }
@@ -52,31 +33,31 @@ fn bytes_32_decode_benchmark(c: &mut Criterion) {
 fn signature_generate_fingerprint_benchmark(c: &mut Criterion) {
     c.bench_function("signature_generate_fingerprint", |b| {
         b.iter(|| {
-            ordinal_crypto::signature::generate_fingerprint();
+            rgp::signature::generate_fingerprint();
         })
     });
 }
 
 fn signature_sign_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
-    let content = [0u8; 1215];
+    let (fingerprint, _) = rgp::signature::generate_fingerprint();
+    let content = [0u8; 8_000_000];
 
     c.bench_function("signature_sign", |b| {
         b.iter(|| {
-            ordinal_crypto::signature::sign(&fingerprint, &content);
+            rgp::signature::sign(&fingerprint, &content);
         })
     });
 }
 
 fn signature_verify_benchmark(c: &mut Criterion) {
-    let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
-    let content = [0u8; 1215];
+    let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
+    let content = [0u8; 8_000_000];
 
-    let signature = ordinal_crypto::signature::sign(&fingerprint, &content);
+    let signature = rgp::signature::sign(&fingerprint, &content);
 
     c.bench_function("signature_verify", |b| {
         b.iter(|| {
-            ordinal_crypto::signature::verify(&signature, &verifying_key, &content).unwrap();
+            rgp::signature::verify(&signature, &verifying_key, &content).unwrap();
         })
     });
 }
@@ -84,90 +65,82 @@ fn signature_verify_benchmark(c: &mut Criterion) {
 fn generate_exchange_keys_benchmark(c: &mut Criterion) {
     c.bench_function("generate_exchange_keys", |b| {
         b.iter(|| {
-            ordinal_crypto::generate_exchange_keys();
+            rgp::generate_exchange_keys();
         })
     });
 }
 
 fn content_encrypt_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
+    let (fingerprint, _) = rgp::signature::generate_fingerprint();
     let content = vec![0u8; 8_000_000];
-    let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
+    let (_, pub_key) = rgp::generate_exchange_keys();
     let pub_keys = vec![pub_key];
 
     c.bench_function("content_encrypt", |b| {
         b.iter(|| {
-            ordinal_crypto::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
+            rgp::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
         })
     });
 }
 
 fn content_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
+    let (fingerprint, _) = rgp::signature::generate_fingerprint();
     let content = vec![0u8; 8_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..5000 {
-        let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
+    for _ in 0..20_000 {
+        let (_, pub_key) = rgp::generate_exchange_keys();
         pub_keys.push(pub_key)
     }
 
     c.bench_function("content_encrypt_multi_recipient", |b| {
         b.iter(|| {
-            ordinal_crypto::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
+            rgp::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
         })
     });
 }
 
 fn content_extract_content_for_key_position_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = ordinal_crypto::signature::generate_fingerprint();
+    let (fingerprint, _) = rgp::signature::generate_fingerprint();
     let content = vec![0u8; 8_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..50_000 {
-        let (_, pub_key) = ordinal_crypto::generate_exchange_keys();
+    for _ in 0..20_000 {
+        let (_, pub_key) = rgp::generate_exchange_keys();
         pub_keys.push(pub_key)
     }
 
-    let encrypted_content =
-        ordinal_crypto::content::encrypt(fingerprint, content, &pub_keys).unwrap();
+    let encrypted_content = rgp::content::encrypt(fingerprint, content, &pub_keys).unwrap();
 
     c.bench_function("content_extract_content_for_key_position", |b| {
         b.iter(|| {
-            ordinal_crypto::content::extract_content_for_key_position(
-                &mut encrypted_content.clone(),
-                0,
-            )
-            .unwrap();
+            rgp::content::extract_content_for_key_position(&mut encrypted_content.clone(), 0)
+                .unwrap();
         })
     });
 }
 
 fn decrypt_content_benchmark(c: &mut Criterion) {
-    let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
+    let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
     let content = vec![0u8; 8_000_000];
-    let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
+    let (priv_key, pub_key) = rgp::generate_exchange_keys();
 
     let pub_keys = vec![pub_key];
 
-    let mut encrypted_content =
-        ordinal_crypto::content::encrypt(fingerprint, content, &pub_keys).unwrap();
+    let mut encrypted_content = rgp::content::encrypt(fingerprint, content, &pub_keys).unwrap();
 
     let encrypted_content =
-        ordinal_crypto::content::extract_content_for_key_position(&mut encrypted_content, 0)
-            .unwrap();
+        rgp::content::extract_content_for_key_position(&mut encrypted_content, 0).unwrap();
 
     c.bench_function("decrypt_content", |b| {
         b.iter(|| {
-            ordinal_crypto::content::decrypt(Some(&verifying_key), priv_key, &encrypted_content)
-                .unwrap();
+            rgp::content::decrypt(Some(&verifying_key), priv_key, &encrypted_content).unwrap();
         })
     });
 }
 
 criterion_group!(
     benches,
-    hash_str_benchmark,
     bytes_32_encode_benchmark,
     bytes_32_decode_benchmark,
     signature_generate_fingerprint_benchmark,

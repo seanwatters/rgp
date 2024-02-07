@@ -1,54 +1,25 @@
 /*
-ordinal_crypto is the cryptography library for the Ordinal Platform
+Copyright (c) 2024 sean watters
 
-Copyright (C) 2024 sean watters
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.
+Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+<LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
+option. This file may not be copied, modified, or distributed
+except according to those terms.
 */
 
 #![doc = include_str!("../README.md")]
-
-/// for converting any string into 32 bytes.
-///
-/// ```rust
-/// let as_bytes = ordinal_crypto::hash_str("make me bytes");
-///
-/// assert_eq!(as_bytes, [140, 80, 144, 129, 175, 43, 30, 228, 156, 242, 68, 212, 88, 54, 57, 61, 153, 171, 132, 241, 152, 87, 192, 17, 182, 131, 148, 93, 31, 156, 227, 133]);
-///```
-pub fn hash_str(val: &str) -> [u8; 32] {
-    use blake2::Digest;
-
-    let mut hasher = blake2::Blake2s256::new();
-    hasher.update(val.as_bytes());
-    let res = hasher.finalize();
-
-    let mut out = [0u8; 32];
-    out[0..32].copy_from_slice(&res);
-
-    out
-}
 
 /// for converting 32 byte keys to/from strings.
 ///
 /// ```rust
 /// let key = [0u8; 32];
 ///
-/// let key_str = ordinal_crypto::bytes_32::encode(&key);
+/// let key_str = rgp::bytes_32::encode(&key);
 ///
 /// assert_eq!(key_str, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
 ///
-/// let decoded_key = ordinal_crypto::bytes_32::decode(&key_str).unwrap();
+/// let decoded_key = rgp::bytes_32::decode(&key_str).unwrap();
 ///
 /// assert_eq!(decoded_key, key);
 ///```
@@ -74,18 +45,18 @@ pub mod bytes_32 {
     }
 }
 
-/// for signing/verifying content and request payloads.
+/// for signing/verifying content.
 ///
 /// ```rust
-/// let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
+/// let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
 ///
 /// let content = vec![0u8; 1215];
 ///
-/// let signature = ordinal_crypto::signature::sign(&fingerprint, &content);
+/// let signature = rgp::signature::sign(&fingerprint, &content);
 ///
 /// assert_eq!(signature.len(), 64);
 ///
-/// let signature_verified = ordinal_crypto::signature::verify(&signature, &verifying_key, &content).is_ok();
+/// let signature_verified = rgp::signature::verify(&signature, &verifying_key, &content).is_ok();
 ///
 /// assert_eq!(signature_verified, true);
 /// ```
@@ -95,7 +66,6 @@ pub mod signature {
     pub fn generate_fingerprint() -> ([u8; 32], [u8; 32]) {
         let fingerprint = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
 
-        // TODO: zeroize
         (
             fingerprint.to_bytes(),
             fingerprint.verifying_key().to_bytes(),
@@ -127,10 +97,10 @@ pub mod signature {
     }
 }
 
-/// for generating pub/priv keys which are used for DH.
+/// for generating pub/priv key pairs.
 ///
 /// ```rust
-/// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
+/// let (priv_key, pub_key) = rgp::generate_exchange_keys();
 ///
 /// assert_eq!(priv_key.len(), 32);
 /// assert_eq!(pub_key.len(), 32);
@@ -142,23 +112,23 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
     (*priv_key.as_bytes(), *pub_key.as_bytes())
 }
 
-/// core encryption/signing logic for payloads.
+/// content encryption/signing.
 ///
 /// ```rust
-/// let (priv_key, pub_key) = ordinal_crypto::generate_exchange_keys();
-/// let (fingerprint, verifying_key) = ordinal_crypto::signature::generate_fingerprint();
+/// let (priv_key, pub_key) = rgp::generate_exchange_keys();
+/// let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
 ///
 /// let content = vec![0u8; 1215];
 /// let pub_keys = vec![pub_key];
 ///
 /// let mut encrypted_content =
-///     ordinal_crypto::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
+///     rgp::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
 ///
 /// let encrypted_content =
-///     ordinal_crypto::content::extract_content_for_key_position(&mut encrypted_content, 0)
+///     rgp::content::extract_content_for_key_position(&mut encrypted_content, 0)
 ///         .unwrap();
 ///
-/// let decrypted_content = ordinal_crypto::content::decrypt(
+/// let decrypted_content = rgp::content::decrypt(
 ///     Some(&verifying_key),
 ///     priv_key,
 ///     &encrypted_content,
@@ -168,10 +138,16 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// assert_eq!(decrypted_content, content);
 /// ```
 pub mod content {
-    use chacha20::cipher::StreamCipher;
-    use chacha20poly1305::aead::{Aead, AeadCore, KeyInit};
     use rayon::prelude::*;
     use std::thread;
+
+    use chacha20::{cipher::StreamCipher, XChaCha20 as ChaCha};
+    use chacha20poly1305::{
+        aead::{Aead, AeadCore, KeyInit},
+        XChaCha20Poly1305 as ChaChaAEAD,
+    };
+
+    use x25519_dalek::{PublicKey, StaticSecret};
 
     const NONCE_LEN: usize = 24;
     const KEY_LEN: usize = 32;
@@ -185,11 +161,11 @@ pub mod content {
         let mut out = vec![];
 
         // generate components
-        let nonce = chacha20poly1305::XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
-        let content_key = chacha20poly1305::XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
+        let nonce = ChaChaAEAD::generate_nonce(&mut rand_core::OsRng);
+        let content_key = ChaChaAEAD::generate_key(&mut rand_core::OsRng);
 
-        let e_priv_key = x25519_dalek::StaticSecret::random_from_rng(rand_core::OsRng);
-        let ot_pub_key = x25519_dalek::PublicKey::from(&e_priv_key);
+        let e_priv_key = StaticSecret::random_from_rng(rand_core::OsRng);
+        let ot_pub_key = PublicKey::from(&e_priv_key);
 
         out.extend(&nonce);
         out.extend(ot_pub_key.as_bytes());
@@ -222,7 +198,7 @@ pub mod content {
             let signature = super::signature::sign(&fingerprint, &content);
             content.extend(signature);
 
-            let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key);
+            let content_cipher = ChaChaAEAD::new(&content_key);
             match content_cipher.encrypt(&nonce, content.as_ref()) {
                 Ok(encrypted_content) => return Ok(encrypted_content),
                 Err(_) => return Err("failed to encrypt content"),
@@ -237,12 +213,12 @@ pub mod content {
             .enumerate()
             .for_each(|(i, chunk)| {
                 let shared_secret = e_priv_key
-                    .diffie_hellman(&x25519_dalek::PublicKey::from(pub_keys[i]))
+                    .diffie_hellman(&PublicKey::from(pub_keys[i]))
                     .to_bytes();
 
                 let mut key_cipher = {
                     use chacha20::cipher::KeyIvInit;
-                    chacha20::XChaCha20::new(&shared_secret.into(), &nonce)
+                    ChaCha::new(&shared_secret.into(), &nonce)
                 };
 
                 let mut buffer = content_key.to_vec();
@@ -326,12 +302,12 @@ pub mod content {
         let mut content_key =
             encrypted_content[NONCE_LEN + KEY_LEN..NONCE_LEN + KEY_LEN + KEY_LEN].to_vec();
 
-        let priv_key = x25519_dalek::StaticSecret::from(priv_key);
+        let priv_key = StaticSecret::from(priv_key);
         let shared_secret = priv_key.diffie_hellman(&ot_pub_key.into()).to_bytes();
 
         let mut key_cipher = {
             use chacha20::cipher::KeyIvInit;
-            chacha20::XChaCha20::new(&shared_secret.into(), &nonce.into())
+            ChaCha::new(&shared_secret.into(), &nonce.into())
         };
 
         key_cipher.apply_keystream(&mut content_key);
@@ -341,7 +317,7 @@ pub mod content {
             Err(_) => return Err("failed to convert content key to bytes"),
         };
 
-        let content_cipher = chacha20poly1305::XChaCha20Poly1305::new(&content_key.into());
+        let content_cipher = ChaChaAEAD::new(&content_key.into());
 
         match content_cipher.decrypt(
             &nonce.into(),
