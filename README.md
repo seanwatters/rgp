@@ -1,10 +1,10 @@
 # RGP
 
-[![ci](https://github.com//ordinarylabs/RGP/actions/workflows/ci.yml/badge.svg)](https://github.com//ordinarylabs/RGP/actions/workflows/ci.yml)
-[![license](https://img.shields.io/github/license/ordinarylabs/RGP.svg)](https://github.com/ordinarylabs/RGP/blob/main/LICENSE)
+[![ci](https://github.com//seanwatters/RGP/actions/workflows/ci.yml/badge.svg)](https://github.com//seanwatters/RGP/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/seanwatters/RGP.svg)](https://github.com/seanwatters/RGP/blob/main/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/rgp.svg)](https://crates.io/crates/rgp)
 [![docs.rs](https://docs.rs/rgp/badge.svg)](https://docs.rs/rgp/)
-[![dependency status](https://deps.rs/repo/github/ordinarylabs/RGP/status.svg)](https://deps.rs/repo/github/ordinarylabs/RGP)
+[![dependency status](https://deps.rs/repo/github/seanwatters/RGP/status.svg)](https://deps.rs/repo/github/seanwatters/RGP)
 
 "Reasonably Good Privacy"
 

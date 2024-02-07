@@ -8,12 +8,12 @@ authors = ["sean watters <sean@watters.io>"]
 description = "\"Reasonably Good Privacy\""
 categories = ["cryptography"]
 edition = "2021"
-homepage = "https://github.com/ordinarylabs"
+homepage = "https://github.com/seanwatters/RGP"
 keywords = ["e2ee", "encryption"]
 license = "MIT"
 name = "rgp"
 readme = "README.md"
-repository = "https://github.com/ordinarylabs/RGP"
+repository = "https://github.com/seanwatters/RGP"
 version = "0.1.5"
 
 [dependencies]
