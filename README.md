@@ -54,6 +54,10 @@ assert_eq!(decrypted_content, content);
 - encrypted content = content.len()
 - Poly1305 MAC = 16 bytes
 
+## License
+
+[MIT](https://opensource.org/license/MIT)
+
 ## Security
 
-*THIS CODE HAS NOT BEEN AUDITED OR REVIEWED. USE AT YOUR OWN RISK.*
+THIS CODE HAS NOT BEEN AUDITED OR REVIEWED. USE AT YOUR OWN RISK.
