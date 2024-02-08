@@ -21,7 +21,7 @@ jobs:
       run: cargo test --verbose
     - name: Benchmark
       run: cargo bench --verbose
-    - name: Benchmark (single thread)
+    - name: Benchmark (single threaded)
       run: cargo bench --no-default-features --verbose
 
 concurrency:
