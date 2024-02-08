@@ -5,7 +5,7 @@
 
 [package]
 authors = ["sean watters <sean@watters.io>"]
-description = "\"Reasonably Good Privacy\""
+description = "Relatively Good Privacy"
 categories = ["cryptography"]
 edition = "2021"
 homepage = "https://github.com/seanwatters/RGP"
@@ -14,7 +14,7 @@ license = "MIT"
 name = "rgp"
 readme = "README.md"
 repository = "https://github.com/seanwatters/RGP"
-version = "0.1.6"
+version = "0.1.7"
 
 [dependencies]
 chacha20 = "0.9.1"

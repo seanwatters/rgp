@@ -128,6 +128,33 @@ pub mod content {
         let nonce = ChaChaAEAD::generate_nonce(&mut rand_core::OsRng);
         let content_key = ChaChaAEAD::generate_key(&mut rand_core::OsRng);
 
+        // sign/encrypt content
+
+        #[cfg(feature = "multi-thread")]
+        let sign_and_encrypt_handle = thread::spawn(move || {
+            let signature = super::signature::sign(&fingerprint, &content);
+            content.extend(signature);
+
+            let content_cipher = ChaChaAEAD::new(&content_key);
+            match content_cipher.encrypt(&nonce, content.as_ref()) {
+                Ok(encrypted_content) => Ok(encrypted_content),
+                Err(_) => Err("failed to encrypt content"),
+            }
+        });
+
+        #[cfg(not(feature = "multi-thread"))]
+        let encrypted_content = {
+            let signature = super::signature::sign(&fingerprint, &content);
+            content.extend(signature);
+
+            let content_cipher = ChaChaAEAD::new(&content_key);
+            match content_cipher.encrypt(&nonce, content.as_ref()) {
+                Ok(encrypted_content) => encrypted_content,
+                Err(_) => return Err("failed to encrypt content"),
+            }
+        };
+
+        // generate components
         let e_priv_key = StaticSecret::random_from_rng(rand_core::OsRng);
         let ot_pub_key = PublicKey::from(&e_priv_key);
 
@@ -156,32 +183,6 @@ pub mod content {
         };
 
         out.extend(&keys_header);
-
-        // sign/encrypt content
-
-        #[cfg(feature = "multi-thread")]
-        let sign_and_encrypt_handle = thread::spawn(move || {
-            let signature = super::signature::sign(&fingerprint, &content);
-            content.extend(signature);
-
-            let content_cipher = ChaChaAEAD::new(&content_key);
-            match content_cipher.encrypt(&nonce, content.as_ref()) {
-                Ok(encrypted_content) => Ok(encrypted_content),
-                Err(_) => Err("failed to encrypt content"),
-            }
-        });
-
-        #[cfg(not(feature = "multi-thread"))]
-        let encrypted_content = {
-            let signature = super::signature::sign(&fingerprint, &content);
-            content.extend(signature);
-
-            let content_cipher = ChaChaAEAD::new(&content_key);
-            match content_cipher.encrypt(&nonce, content.as_ref()) {
-                Ok(encrypted_content) => encrypted_content,
-                Err(_) => return Err("failed to encrypt content"),
-            }
-        };
 
         let mut encrypted_keys = vec![0u8; KEY_LEN * pub_key_count];
 
