@@ -21,6 +21,8 @@ jobs:
       run: cargo test --verbose
     - name: Benchmark
       run: cargo bench --verbose
+    - name: Benchmark (single thread)
+      run: cargo bench --no-default-features --verbose
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

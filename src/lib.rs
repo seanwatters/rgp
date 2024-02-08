@@ -100,7 +100,9 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// assert_eq!(decrypted_content, content);
 /// ```
 pub mod content {
+    #[cfg(feature = "multi-thread")]
     use rayon::prelude::*;
+    #[cfg(feature = "multi-thread")]
     use std::thread;
 
     use chacha20::{cipher::StreamCipher, XChaCha20 as ChaCha};
@@ -156,20 +158,36 @@ pub mod content {
         out.extend(&keys_header);
 
         // sign/encrypt content
+
+        #[cfg(feature = "multi-thread")]
         let sign_and_encrypt_handle = thread::spawn(move || {
             let signature = super::signature::sign(&fingerprint, &content);
             content.extend(signature);
 
             let content_cipher = ChaChaAEAD::new(&content_key);
             match content_cipher.encrypt(&nonce, content.as_ref()) {
-                Ok(encrypted_content) => return Ok(encrypted_content),
-                Err(_) => return Err("failed to encrypt content"),
+                Ok(encrypted_content) => Ok(encrypted_content),
+                Err(_) => Err("failed to encrypt content"),
             }
         });
+
+        #[cfg(not(feature = "multi-thread"))]
+        let encrypted_content = {
+            let signature = super::signature::sign(&fingerprint, &content);
+            content.extend(signature);
+
+            let content_cipher = ChaChaAEAD::new(&content_key);
+            match content_cipher.encrypt(&nonce, content.as_ref()) {
+                Ok(encrypted_content) => encrypted_content,
+                Err(_) => return Err("failed to encrypt content"),
+            }
+        };
 
         let mut encrypted_keys = vec![0u8; KEY_LEN * pub_key_count];
 
         // encrypt keys
+
+        #[cfg(feature = "multi-thread")]
         encrypted_keys
             .par_chunks_mut(KEY_LEN)
             .enumerate()
@@ -189,8 +207,29 @@ pub mod content {
                 chunk[0..KEY_LEN].copy_from_slice(&buffer);
             });
 
+        #[cfg(not(feature = "multi-thread"))]
+        encrypted_keys
+            .chunks_mut(KEY_LEN)
+            .enumerate()
+            .for_each(|(i, chunk)| {
+                let shared_secret = e_priv_key
+                    .diffie_hellman(&PublicKey::from(pub_keys[i]))
+                    .to_bytes();
+
+                let mut key_cipher = {
+                    use chacha20::cipher::KeyIvInit;
+                    ChaCha::new(&shared_secret.into(), &nonce)
+                };
+
+                let mut buffer = content_key.to_vec();
+                key_cipher.apply_keystream(&mut buffer);
+
+                chunk[0..KEY_LEN].copy_from_slice(&buffer);
+            });
+
         out.extend(encrypted_keys);
 
+        #[cfg(feature = "multi-thread")]
         let encrypted_content = sign_and_encrypt_handle.join().unwrap()?;
         out.extend(encrypted_content);
 

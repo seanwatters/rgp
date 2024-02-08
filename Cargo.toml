@@ -14,18 +14,22 @@ license = "MIT"
 name = "rgp"
 readme = "README.md"
 repository = "https://github.com/seanwatters/RGP"
-version = "0.1.5"
+version = "0.1.6"
 
 [dependencies]
 chacha20 = "0.9.1"
 chacha20poly1305 = "0.10.1"
 ed25519-dalek = { version = "2.0.0", features = ["rand_core"] }
 rand_core = "0.6.4"
-rayon = "1.8.1"
+rayon = { version = "1.8.1", optional = true }
 x25519-dalek = { version =  "2.0.0", features = ["static_secrets"] }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[features]
+default = ["multi-thread"]
+multi-thread = ["dep:rayon"]
 
 [[bench]]
 name = "lib"
