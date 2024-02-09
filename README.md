@@ -87,7 +87,7 @@ For the 8mb example with 20,000 recipients, on my M1 MacBook Pro
 | ----------------------- | --------- |
 | encrypt (multi-thread)  | 97.186 ms |
 | encrypt (single-thread) | 764.00 ms |
-| extract                 | 486.00 µs |
+| extract                 | 480.90 µs |
 | decrypt                 | 44.729 ms |
 
 Doing the equivalent operation for just 1 recipient on 8mb is
@@ -96,7 +96,6 @@ Doing the equivalent operation for just 1 recipient on 8mb is
 | ----------------------- | --------- |
 | encrypt (multi-thread)  | 61.212 ms |
 | encrypt (single-thread) | 61.314 ms |
-| decrypt                 | 44.729 ms |
 
 When benchmarked in isolation, the signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms, respectively.
 
@@ -108,9 +107,11 @@ To check performance on your machine, run `cargo bench` (or `cargo bench --no-de
 
 - **nonce** = 24 bytes
 - **one-time public key** = 32 bytes
-- keys count (2-9 bytes)
-    - int size = 1 byte (1 for u8 | 2 for u16 | 4 for u32 | 8 for u64)
-    - big endian int = 1-8 bytes
+- keys count (1-9 bytes)
+    - int size = 2 bits (1 for u8 | 2 for u16 | 4 for u32 | 8 for u64)
+    - count
+        - numbers 0-63 = 6 bits
+        - numbers >63 = 1-8 bytes (big endian int)
 - encrypted keys = pub_keys.len() * 32 bytes
 - encrypted content = content.len()
 - **signature** = 64 bytes (encrypted along with the content to preserve deniability)

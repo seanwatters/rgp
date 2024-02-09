@@ -106,8 +106,7 @@ fn decrypt_content_benchmark(c: &mut Criterion) {
 
     let mut encrypted_content = rgp::content::encrypt(fingerprint, content, &pub_keys).unwrap();
 
-    let encrypted_content =
-        rgp::content::extract_content_for_key_position(&mut encrypted_content, 0).unwrap();
+    rgp::content::extract_content_for_key_position(&mut encrypted_content, 0).unwrap();
 
     c.bench_function("decrypt_content", |b| {
         b.iter(|| {

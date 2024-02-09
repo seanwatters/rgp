@@ -14,7 +14,7 @@ license = "MIT"
 name = "rgp"
 readme = "README.md"
 repository = "https://github.com/seanwatters/RGP"
-version = "0.1.7"
+version = "0.1.8"
 
 [dependencies]
 chacha20 = "0.9.1"

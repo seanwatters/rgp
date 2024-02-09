@@ -163,21 +163,22 @@ pub mod content {
 
         // create keys header
         let pub_key_count = pub_keys.len();
-        let keys_header = match pub_key_count {
-            0..=255 => vec![1, pub_key_count as u8],
-            256..=65_535 => {
-                let mut h = vec![2];
-                h.extend_from_slice(&(pub_key_count as u16).to_be_bytes());
+        let keys_header: Vec<u8> = match pub_key_count {
+            0..=63 => vec![(0 << 6) | pub_key_count as u8],
+            64..=318 => vec![((0 << 6) | 63), (pub_key_count - 63) as u8],
+            319..=65_598 => {
+                let mut h = vec![(1 << 6) | 63];
+                h.extend_from_slice(&((pub_key_count - 63) as u16).to_be_bytes());
                 h
             }
-            65_536..=4_294_967_295 => {
-                let mut h = vec![4];
-                h.extend_from_slice(&(pub_key_count as u32).to_be_bytes());
+            65_599..=4_294_967_358 => {
+                let mut h = vec![(2 << 6) | 63];
+                h.extend_from_slice(&((pub_key_count - 63) as u32).to_be_bytes());
                 h
             }
             _ => {
-                let mut h = vec![8];
-                h.extend_from_slice(&(pub_key_count as u64).to_be_bytes());
+                let mut h = vec![(3 << 6) | 63];
+                h.extend_from_slice(&((pub_key_count - 63) as u64).to_be_bytes());
                 h
             }
         };
@@ -241,38 +242,47 @@ pub mod content {
         encrypted_content: &mut Vec<u8>,
         position: u16,
     ) -> Result<&[u8], &'static str> {
-        let ot_pub_key_start = NONCE_LEN;
-        let keys_header_start = ot_pub_key_start + KEY_LEN;
+        let keys_header_start = NONCE_LEN + KEY_LEN;
 
-        let (keys_header_len, keys_count): (usize, usize) =
-            match encrypted_content[keys_header_start] {
-                1 => (2, encrypted_content[keys_header_start + 1] as usize),
-                2 => (
-                    3,
-                    u16::from_be_bytes(
-                        encrypted_content[keys_header_start + 1..keys_header_start + 3]
-                            .try_into()
-                            .unwrap(),
-                    ) as usize,
-                ),
-                4 => (
-                    5,
-                    u32::from_be_bytes(
-                        encrypted_content[keys_header_start + 1..keys_header_start + 5]
-                            .try_into()
-                            .unwrap(),
-                    ) as usize,
-                ),
-                8 => (
-                    9,
-                    u64::from_be_bytes(
-                        encrypted_content[keys_header_start + 1..keys_header_start + 9]
-                            .try_into()
-                            .unwrap(),
-                    ) as usize,
-                ),
-                _ => return Err("unknown keys header value"),
-            };
+        let (keys_header_len, keys_count): (usize, usize) = {
+            let keys_header_size = encrypted_content[keys_header_start];
+
+            if keys_header_size < 64 {
+                (1, keys_header_size as usize)
+            } else {
+                match (keys_header_size >> 6) & 0b11 {
+                    0 => (2, encrypted_content[keys_header_start + 1] as usize + 63),
+                    1 => (
+                        3,
+                        u16::from_be_bytes(
+                            encrypted_content[keys_header_start + 1..keys_header_start + 3]
+                                .try_into()
+                                .unwrap(),
+                        ) as usize
+                            + 63,
+                    ),
+                    2 => (
+                        5,
+                        u32::from_be_bytes(
+                            encrypted_content[keys_header_start + 1..keys_header_start + 5]
+                                .try_into()
+                                .unwrap(),
+                        ) as usize
+                            + 63,
+                    ),
+                    3 => (
+                        9,
+                        u64::from_be_bytes(
+                            encrypted_content[keys_header_start + 1..keys_header_start + 9]
+                                .try_into()
+                                .unwrap(),
+                        ) as usize
+                            + 63,
+                    ),
+                    _ => return Err("unknown keys header value"),
+                }
+            }
+        };
 
         let keys_start = keys_header_start + keys_header_len;
         let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
