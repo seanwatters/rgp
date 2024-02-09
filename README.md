@@ -1,10 +1,10 @@
 # RGP
 
-[![ci](https://github.com//seanwatters/RGP/actions/workflows/ci.yml/badge.svg)](https://github.com//seanwatters/RGP/actions/workflows/ci.yml)
-[![license](https://img.shields.io/github/license/seanwatters/RGP.svg)](https://github.com/seanwatters/RGP/blob/main/LICENSE)
+[![ci](https://github.com//seanwatters/rgp/actions/workflows/ci.yml/badge.svg)](https://github.com//seanwatters/rgp/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/seanwatters/rgp.svg)](https://github.com/seanwatters/rgp/blob/main/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/rgp.svg)](https://crates.io/crates/rgp)
 [![docs.rs](https://docs.rs/rgp/badge.svg)](https://docs.rs/rgp/)
-[![dependency status](https://deps.rs/repo/github/seanwatters/RGP/status.svg)](https://deps.rs/repo/github/seanwatters/RGP)
+[![dependency status](https://deps.rs/repo/github/seanwatters/rgp/status.svg)](https://deps.rs/repo/github/seanwatters/rgp)
 
 Relatively Good Privacy 
 
@@ -99,7 +99,7 @@ Doing the equivalent operation for just 1 recipient on 8mb is
 
 When benchmarked in isolation, the signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms, respectively.
 
-To check performance on your machine, run `cargo bench` (or `cargo bench --no-default-features` to disable multi-threading). You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/RGP/actions/workflows/ci.yml) under job/Benchmark or job/Benchmark (single threaded).
+To check performance on your machine, run `cargo bench` (or `cargo bench --no-default-features` to disable multi-threading). You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml) under job/Benchmark or job/Benchmark (single threaded).
 
 **NOTE:** in multi-threaded mode the content signing/encryption logic is done in a separate thread from the per-recipient **content key** encryption, and the **content key** encryption work is done in a Rayon `par_chunks_mut` for loop. There is likely an opportunity for further parallelization in the content encryption and signing step.
 

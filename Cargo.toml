@@ -5,16 +5,16 @@
 
 [package]
 authors = ["sean watters <sean@watters.io>"]
-description = "Relatively Good Privacy"
+description = "Enabling efficient E2EE for large-audience pub/sub."
 categories = ["cryptography"]
 edition = "2021"
-homepage = "https://github.com/seanwatters/RGP"
+homepage = "https://github.com/seanwatters/rgp"
 keywords = ["e2ee", "encryption"]
 license = "MIT"
 name = "rgp"
 readme = "README.md"
-repository = "https://github.com/seanwatters/RGP"
-version = "0.1.9"
+repository = "https://github.com/seanwatters/rgp"
+version = "0.1.10"
 
 [dependencies]
 chacha20 = "0.9.1"
