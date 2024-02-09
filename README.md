@@ -108,7 +108,7 @@ To check performance on your machine, run `cargo bench` (or `cargo bench --no-de
 - **nonce** = 24 bytes
 - **one-time public key** = 32 bytes
 - keys count (1-9 bytes)
-    - int size = 2 bits (1 for u8 | 2 for u16 | 4 for u32 | 8 for u64)
+    - int size = 2 bits (0 for u8+63 | 1 for u16+63 | 2 for u32+63 | 3 for u64+63)
     - count
         - numbers 0-63 = 6 bits
         - numbers >63 = 1-8 bytes (big endian int)
