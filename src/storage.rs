@@ -22,8 +22,6 @@ impl RecvStream {
 /*
 `Interaction` on-disk format
 
-- id = 16 bytes
-
 - receive streams count
     - size = 2 bits
     - count = 0-8 bytes
