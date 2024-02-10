@@ -1,13 +1,18 @@
 pub enum SendMode {
     /// PGP-style fresh session key for each message.
+    ///
     /// most secure, and highest overhead (32 bytes for each recipient).
     KeyGen,
-    /// Increments ratchet
+
+    /// Increments ratchet.
+    ///
     /// less secure, but keys still appear random to attackers, and there
     /// is added break-in resilience if a `ratchet_key` is used. much lower
     /// overhead as keys don't need to be encrypted or stored for every recipient.
     Ratchet,
-    /// Reuses most recent ratchet key
+
+    /// Reuses most recent ratchet key.
+    ///
     /// least secure as it provides no forward secrecy, but may be useful for
     /// applications that need RTC where the ratchet operation would bog things down
     /// too much, but the usage context can afford to have a series of frames reuse
@@ -30,7 +35,7 @@ struct SendStream {
 }
 
 impl SendStream {
-    pub fn put(&self) {}
+    pub fn put(&self, mode: SendMode) {}
 }
 
 struct RecvStream {
@@ -56,8 +61,8 @@ impl RecvStream {
 
 - send stream
     - id = 16 bytes
-    - ratchet_key = 32 bytes
-    - ratchet_value
+    - ratchet_key = 32 bytes (encrypted)
+    - ratchet_value (encrypted)
         - iteration
             - size = 2 bits
             - iteration = 0-8 bytes
@@ -86,8 +91,8 @@ struct Interaction {
 }
 
 impl Interaction {
-    pub fn put(&self) {
-        self.send_stream.put()
+    pub fn put(&self, mode: SendMode) {
+        self.send_stream.put(mode)
     }
 
     pub fn sync_all(&self) {
