@@ -7,6 +7,8 @@ This file may not be copied, modified, or distributed except according to those 
 
 #![doc = include_str!("../README.md")]
 
+mod storage;
+
 /// for signing/verifying content.
 ///
 /// ```rust
