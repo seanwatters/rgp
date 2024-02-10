@@ -108,10 +108,7 @@ pub mod content {
     use std::thread;
 
     use chacha20::{cipher::StreamCipher, XChaCha20 as ChaCha};
-    use chacha20poly1305::{
-        aead::{Aead, AeadCore, KeyInit},
-        XChaCha20Poly1305 as ChaChaAEAD,
-    };
+    use chacha20poly1305::{aead::Aead, AeadCore, XChaCha20Poly1305 as ChaChaAEAD};
 
     use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -128,12 +125,17 @@ pub mod content {
 
         // generate components
         let nonce = ChaChaAEAD::generate_nonce(&mut rand_core::OsRng);
-        let content_key = ChaChaAEAD::generate_key(&mut rand_core::OsRng);
+        let content_key = {
+            use chacha20poly1305::KeyInit;
+            ChaChaAEAD::generate_key(&mut rand_core::OsRng)
+        };
 
         // sign/encrypt content
 
         #[cfg(feature = "multi-thread")]
         let sign_and_encrypt_handle = thread::spawn(move || {
+            use chacha20poly1305::KeyInit;
+
             let signature = super::signature::sign(&fingerprint, &content);
             content.extend(signature);
 
@@ -331,7 +333,10 @@ pub mod content {
             Err(_) => return Err("failed to convert content key to bytes"),
         };
 
-        let content_cipher = ChaChaAEAD::new(&content_key.into());
+        let content_cipher = {
+            use chacha20poly1305::KeyInit;
+            ChaChaAEAD::new(&content_key.into())
+        };
 
         match content_cipher.decrypt(
             &nonce.into(),
