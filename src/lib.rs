@@ -146,6 +146,8 @@ pub mod content {
 
         #[cfg(not(feature = "multi-thread"))]
         let encrypted_content = {
+            use chacha20poly1305::KeyInit;
+
             let signature = super::signature::sign(&fingerprint, &content);
             content.extend(signature);
 
