@@ -1,5 +1,28 @@
+pub enum SendMode {
+    /// PGP-style fresh session key for each message.
+    /// most secure, and highest overhead (32 bytes for each recipient).
+    KeyGen,
+    /// Increments ratchet
+    /// less secure, but keys still appear random to attackers, and there
+    /// is added break-in resilience if a `ratchet_key` is used. much lower
+    /// overhead as keys don't need to be encrypted or stored for every recipient.
+    Ratchet,
+    /// Reuses most recent ratchet key
+    /// least secure as it provides no forward secrecy, but may be useful for
+    /// applications that need RTC where the ratchet operation would bog things down
+    /// too much, but the usage context can afford to have a series of frames reuse
+    /// the same key (i.e Session send mode is used for the duration of a phone
+    /// call or video chat or something).
+    Session,
+}
+
 struct SendStream {
     id: [u8; 16],
+
+    // initialized as a constant, but can be set to improve break-in resilience
+    ratchet_key: [u8; 32],
+    // (iteration for current ratchet_key, current ratchet value)
+    ratchet_value: (u64, [u8; 32]),
 
     // `send_keys` and `usernames` are ordered and correlated
     send_keys: Vec<[u8; 32]>,
@@ -33,6 +56,12 @@ impl RecvStream {
 
 - send stream
     - id = 16 bytes
+    - ratchet_key = 32 bytes
+    - ratchet_value
+        - iteration
+            - size = 2 bits
+            - iteration = 0-8 bytes
+        - value = 32 bytes
     - recipients count
         - size = 2 bits
         - count = 0-8 bytes
