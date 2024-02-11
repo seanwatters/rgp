@@ -7,7 +7,7 @@ pub enum SendMode {
     /// Increments ratchet.
     ///
     /// less secure, but keys still appear random to attackers, and there
-    /// is added break-in resilience if a `ratchet_key` is used. much lower
+    /// is maybe better break-in recovery if a `ratchet_key` is used. much lower
     /// overhead as keys don't need to be encrypted or stored for every recipient.
     Ratchet,
 
@@ -24,7 +24,7 @@ pub enum SendMode {
 struct SendStream {
     id: [u8; 16],
 
-    // initialized as a constant, but can be set to improve break-in resilience
+    // initialized as a constant, but could be set to possibly improve break-in recovery?
     ratchet_key: [u8; 32],
     // (iteration for current ratchet_key, current ratchet value)
     ratchet_value: (u64, [u8; 32]),
