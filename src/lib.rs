@@ -82,7 +82,7 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// let (priv_key, pub_key) = rgp::generate_exchange_keys();
 /// let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1215];
+/// let content = vec![0u8; 1];
 /// let pub_keys = vec![pub_key];
 ///
 /// let mut encrypted_content =
@@ -295,8 +295,13 @@ pub mod content {
 
         let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
 
-        encrypted_content.drain(encrypted_key_start + KEY_LEN..encrypted_content_start);
-        encrypted_content.drain(keys_header_start..encrypted_key_start);
+        encrypted_content.copy_within(
+            encrypted_key_start..encrypted_key_start + KEY_LEN,
+            keys_header_start,
+        );
+        encrypted_content.copy_within(encrypted_content_start.., keys_header_start + KEY_LEN);
+        encrypted_content
+            .truncate(encrypted_content.len() - keys_header_len - ((keys_count - 1) * KEY_LEN));
 
         Ok(encrypted_content)
     }

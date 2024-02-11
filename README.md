@@ -87,7 +87,7 @@ For the 8mb example with 20,000 recipients, on my M1 MacBook Pro
 | ----------------------- | --------- |
 | encrypt (multi-thread)  | 97.186 ms |
 | encrypt (single-thread) | 764.00 ms |
-| extract                 | 480.90 µs |
+| extract                 | 328.30 µs |
 | decrypt                 | 44.729 ms |
 
 Doing the equivalent operation for just 1 recipient on 8mb is
