@@ -1,33 +1,30 @@
-pub enum SendMode {
-    /// PGP-style fresh session key for each message.
-    ///
-    /// most secure, and highest overhead (32 bytes for each recipient).
-    KeyGen,
+// !! key "ratcheting" logic will be buried in the ciphertext of messages
 
-    /// Increments ratchet.
-    ///
-    /// less secure, but keys still appear random to attackers, and there
-    /// is maybe better break-in recovery if a `ratchet_key` is used. much lower
-    /// overhead as keys don't need to be encrypted or stored for every recipient.
-    Ratchet,
+// ?? `Mode` should probably get a full byte for the transport/storage
+// ?? just to accommodate future iterations; so the remaining 5 bits
+// ?? can be reserved.
+pub enum Mode {
+    /// uses a McEliece session key
+    Kem,
+    /// uses a DH shared secret
+    Dh,
 
-    /// Reuses most recent ratchet key.
-    ///
-    /// least secure as it provides no forward secrecy, but may be useful for
-    /// applications that need RTC where the ratchet operation would bog things down
-    /// too much, but the usage context can afford to have a series of frames reuse
-    /// the same key (i.e Session send mode is used for the duration of a phone
-    /// call or video chat or something).
-    Session,
+    /// uses a DH shared secret, hashed with a McEliece session key
+    Hybrid,
+
+    /// hashes the last key
+    Hash,
+    /// reuses last key
+    Nil,
 }
 
 struct SendStream {
     id: [u8; 16],
 
     // initialized as a constant, but could be set to possibly improve break-in recovery?
-    ratchet_key: [u8; 32],
-    // (iteration for current ratchet_key, current ratchet value)
-    ratchet_value: (u64, [u8; 32]),
+    hash_key: [u8; 32],
+    // (iteration for current hash_key, current key value)
+    last_key: (u64, [u8; 32]),
 
     // `send_keys` and `usernames` are ordered and correlated
     send_keys: Vec<[u8; 32]>,
@@ -35,7 +32,7 @@ struct SendStream {
 }
 
 impl SendStream {
-    pub fn put(&self, mode: SendMode) {}
+    pub fn put(&self, mode: Mode) {}
 }
 
 struct RecvStream {
@@ -49,8 +46,8 @@ struct RecvStream {
     // TODO: a "seen_iterators" so that we can build up
     // TODO: [2, 3, 4, 5], while we wait for 1 to come in
     // TODO: (once 1 comes in, we can set to 5).
-    ratchet_key: [u8; 32],
-    ratchet_value: (u64, [u8; 32]),
+    hash_key: [u8; 32],
+    last_key: (u64, [u8; 32]),
 }
 
 impl RecvStream {
@@ -68,8 +65,8 @@ impl RecvStream {
     - position
         - size = 2 bits
         - position = 0-8 bytes
-    - ratchet_key = 32 bytes (encrypted)
-    - ratchet_value (encrypted)
+    - hash_key = 32 bytes (encrypted)
+    - last_key (encrypted)
         - iteration
             - size = 2 bits
             - iteration = 0-8 bytes
@@ -77,8 +74,8 @@ impl RecvStream {
 
 - send stream
     - id = 16 bytes
-    - ratchet_key = 32 bytes (encrypted)
-    - ratchet_value (encrypted)
+    - hash_key = 32 bytes (encrypted)
+    - last_key (encrypted)
         - iteration
             - size = 2 bits
             - iteration = 0-8 bytes
@@ -107,7 +104,7 @@ struct Interaction {
 }
 
 impl Interaction {
-    pub fn put(&self, mode: SendMode) {
+    pub fn put(&self, mode: Mode) {
         self.send_stream.put(mode)
     }
 
