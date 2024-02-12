@@ -79,14 +79,16 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 /// content encryption/signing.
 ///
 /// ```rust
-/// let (priv_key, pub_key) = rgp::generate_exchange_keys();
+/// let (sender_priv_key, sender_pub_key) = rgp::generate_exchange_keys();
+/// let (receiver_priv_key, receiver_pub_key) = rgp::generate_exchange_keys();
+///
 /// let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
 ///
 /// let content = vec![0u8; 1];
-/// let pub_keys = vec![pub_key];
+/// let pub_keys = vec![receiver_pub_key];
 ///
 /// let mut encrypted_content =
-///     rgp::content::encrypt(fingerprint, content.clone(), &pub_keys).unwrap();
+///     rgp::content::encrypt(fingerprint, content.clone(), sender_priv_key, &pub_keys).unwrap();
 ///
 /// let encrypted_content =
 ///     rgp::content::extract_content_for_key_position(&mut encrypted_content, 0)
@@ -94,7 +96,8 @@ pub fn generate_exchange_keys() -> ([u8; 32], [u8; 32]) {
 ///
 /// let decrypted_content = rgp::content::decrypt(
 ///     Some(&verifying_key),
-///     priv_key,
+///     sender_pub_key,
+///     receiver_priv_key,
 ///     &encrypted_content,
 /// )
 /// .unwrap();
@@ -119,10 +122,9 @@ pub mod content {
     pub fn encrypt(
         fingerprint: [u8; 32],
         mut content: Vec<u8>,
+        priv_key: [u8; KEY_LEN],
         pub_keys: &Vec<[u8; KEY_LEN]>,
     ) -> Result<Vec<u8>, &'static str> {
-        let mut out = vec![];
-
         // generate components
         let nonce = ChaChaAEAD::generate_nonce(&mut rand_core::OsRng);
         let content_key = {
@@ -160,12 +162,7 @@ pub mod content {
             }
         };
 
-        // generate components
-        let e_priv_key = StaticSecret::random_from_rng(rand_core::OsRng);
-        let ot_pub_key = PublicKey::from(&e_priv_key);
-
-        out.extend(&nonce);
-        out.extend(ot_pub_key.as_bytes());
+        let mut out = nonce.to_vec();
 
         // create keys header
         let pub_key_count = pub_keys.len();
@@ -190,6 +187,7 @@ pub mod content {
         };
 
         out.extend(&keys_header);
+        let priv_key = StaticSecret::from(priv_key);
 
         let mut encrypted_keys = vec![0u8; KEY_LEN * pub_key_count];
 
@@ -200,7 +198,7 @@ pub mod content {
             .par_chunks_mut(KEY_LEN)
             .enumerate()
             .for_each(|(i, chunk)| {
-                let shared_secret = e_priv_key
+                let shared_secret = priv_key
                     .diffie_hellman(&PublicKey::from(pub_keys[i]))
                     .to_bytes();
 
@@ -220,7 +218,7 @@ pub mod content {
             .chunks_mut(KEY_LEN)
             .enumerate()
             .for_each(|(i, chunk)| {
-                let shared_secret = e_priv_key
+                let shared_secret = priv_key
                     .diffie_hellman(&PublicKey::from(pub_keys[i]))
                     .to_bytes();
 
@@ -248,7 +246,7 @@ pub mod content {
         encrypted_content: &mut Vec<u8>,
         position: u16,
     ) -> Result<&[u8], &'static str> {
-        let keys_header_start = NONCE_LEN + KEY_LEN;
+        let keys_header_start = NONCE_LEN;
 
         let (keys_header_len, keys_count): (usize, usize) = {
             let keys_header_size = encrypted_content[keys_header_start];
@@ -308,6 +306,7 @@ pub mod content {
 
     pub fn decrypt(
         verifying_key: Option<&[u8; 32]>,
+        pub_key: [u8; KEY_LEN],
         priv_key: [u8; KEY_LEN],
         encrypted_content: &[u8],
     ) -> Result<Vec<u8>, &'static str> {
@@ -316,17 +315,10 @@ pub mod content {
             Err(_) => return Err("failed to convert nonce to bytes"),
         };
 
-        let ot_pub_key: [u8; KEY_LEN] =
-            match encrypted_content[NONCE_LEN..NONCE_LEN + KEY_LEN].try_into() {
-                Ok(key) => key,
-                Err(_) => return Err("failed to convert pub key to bytes"),
-            };
-
-        let mut content_key =
-            encrypted_content[NONCE_LEN + KEY_LEN..NONCE_LEN + KEY_LEN + KEY_LEN].to_vec();
+        let mut content_key = encrypted_content[NONCE_LEN..NONCE_LEN + KEY_LEN].to_vec();
 
         let priv_key = StaticSecret::from(priv_key);
-        let shared_secret = priv_key.diffie_hellman(&ot_pub_key.into()).to_bytes();
+        let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
 
         let mut key_cipher = {
             use chacha20::cipher::KeyIvInit;
@@ -345,10 +337,7 @@ pub mod content {
             ChaChaAEAD::new(&content_key.into())
         };
 
-        match content_cipher.decrypt(
-            &nonce.into(),
-            &encrypted_content[NONCE_LEN + KEY_LEN + KEY_LEN..],
-        ) {
+        match content_cipher.decrypt(&nonce.into(), &encrypted_content[NONCE_LEN + KEY_LEN..]) {
             Ok(mut content) => {
                 let signature = content.split_off(content.len() - SIGNATURE_LEN);
 
