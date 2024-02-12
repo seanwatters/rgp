@@ -68,6 +68,12 @@ impl RecvStream {
     - position
         - size = 2 bits
         - position = 0-8 bytes
+    - ratchet_key = 32 bytes (encrypted)
+    - ratchet_value (encrypted)
+        - iteration
+            - size = 2 bits
+            - iteration = 0-8 bytes
+        - value = 32 bytes
 
 - send stream
     - id = 16 bytes
