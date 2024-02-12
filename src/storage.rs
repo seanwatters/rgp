@@ -41,6 +41,16 @@ impl SendStream {
 struct RecvStream {
     id: [u8; 16],
     position: u64,
+
+    // TODO: will need to handle OOO messages
+    // TODO: and only increment these values once
+    // TODO: we know we've seen every increment on
+    // TODO: the iterator up until that point by storing
+    // TODO: a "seen_iterators" so that we can build up
+    // TODO: [2, 3, 4, 5], while we wait for 1 to come in
+    // TODO: (once 1 comes in, we can set to 5).
+    ratchet_key: [u8; 32],
+    ratchet_value: (u64, [u8; 32]),
 }
 
 impl RecvStream {
