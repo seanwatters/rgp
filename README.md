@@ -88,17 +88,17 @@ For the 8mb example with 20,000 recipients, on my M1 MacBook Pro
 
 | Operation               | Time      |
 | ----------------------- | --------- |
-| encrypt (multi-thread)  | 97.186 ms |
-| encrypt (single-thread) | 764.00 ms |
-| extract                 | 328.30 µs |
-| decrypt                 | 44.729 ms |
+| encrypt (multi-thread)  | 96.606 ms |
+| encrypt (single-thread) | 758.99 ms |
+| extract                 | 322.95 µs |
+| decrypt                 | 44.399 ms |
 
 Doing the equivalent operation for just 1 recipient on 8mb is
 
 | Operation               | Time      |
 | ----------------------- | --------- |
-| encrypt (multi-thread)  | 61.212 ms |
-| encrypt (single-thread) | 61.314 ms |
+| encrypt (multi-thread)  | 60.714 ms |
+| encrypt (single-thread) | 60.889 ms |
 
 When benchmarked in isolation, the signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms, respectively.
 
