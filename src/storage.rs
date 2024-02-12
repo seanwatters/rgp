@@ -1,15 +1,21 @@
-// !! key "ratcheting" logic will be buried in the ciphertext of messages
+// !! public key "ratcheting" increments will be buried in the ciphertext of messages
+
+// * any McEliece usage will inflate the per-recipient multiplier by
+// * at least 96 bytes (assuming the 348864 variant is used) to accommodate
+// * the kem ciphertext. McEliece is picked because its ciphertext is significantly
+// * smaller than the alternative PQ kem options.
 
 // ?? `Mode` should probably get a full byte for the transport/storage
 // ?? just to accommodate future iterations; so the remaining 5 bits
 // ?? can be reserved.
 pub enum Mode {
-    /// uses a McEliece session key
+    /// encrypts content key with a McEliece session key
     Kem,
-    /// uses a DH shared secret
+    /// encrypts content key with a DH shared secret
     Dh,
 
-    /// uses a DH shared secret, hashed with a McEliece session key
+    /// encrypts content key with the result of a DH shared
+    /// secret and McEliece session key getting hashed together
     Hybrid,
 
     /// hashes the last key
