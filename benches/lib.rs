@@ -17,7 +17,7 @@ fn generate_fingerprint_benchmark(c: &mut Criterion) {
 
 fn sign_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
-    let content = [0u8; 1_000_000];
+    let content = [0u8; 8_000_000];
 
     c.bench_function("sign", |b| {
         b.iter(|| {
@@ -28,7 +28,7 @@ fn sign_benchmark(c: &mut Criterion) {
 
 fn verify_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = rgp::generate_fingerprint();
-    let content = [0u8; 1_000_000];
+    let content = [0u8; 8_000_000];
 
     let signature = rgp::sign(&fingerprint, &content);
 
@@ -49,34 +49,29 @@ fn generate_dh_keys_benchmark(c: &mut Criterion) {
 
 fn session_encrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
-    let (priv_key, _) = rgp::generate_dh_keys();
+    let (key, _) = rgp::generate_dh_keys();
 
-    let content = vec![0u8; 1_000_000];
+    let content = vec![0u8; 8_000_000];
 
     c.bench_function("session_encrypt", |b| {
         b.iter(|| {
-            rgp::encrypt(
-                fingerprint,
-                content.clone(),
-                rgp::EncryptMode::Session(priv_key),
-            )
-            .unwrap();
+            rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Session(key)).unwrap();
         })
     });
 }
 
 fn hash_encrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
-    let (priv_key, _) = rgp::generate_dh_keys();
+    let (hash_key, key) = rgp::generate_dh_keys();
 
-    let content = vec![0u8; 1_000_000];
+    let content = vec![0u8; 8_000_000];
 
     c.bench_function("hash_encrypt", |b| {
         b.iter(|| {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::EncryptMode::Hash(priv_key, priv_key),
+                rgp::EncryptMode::Hash(hash_key, key),
             )
             .unwrap();
         })
@@ -89,7 +84,7 @@ fn dh_encrypt_benchmark(c: &mut Criterion) {
     let (sender_priv_key, _) = rgp::generate_dh_keys();
     let (_, receiver_pub_key) = rgp::generate_dh_keys();
 
-    let content = vec![0u8; 1_000_000];
+    let content = vec![0u8; 8_000_000];
     let pub_keys = vec![receiver_pub_key];
 
     c.bench_function("dh_encrypt", |b| {
@@ -108,10 +103,10 @@ fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
     let (sender_priv_key, _) = rgp::generate_dh_keys();
 
-    let content = vec![0u8; 1_000_000];
+    let content = vec![0u8; 8_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..10_000 {
+    for _ in 0..20_000 {
         let (_, pub_key) = rgp::generate_dh_keys();
         pub_keys.push(pub_key)
     }
@@ -128,14 +123,14 @@ fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
     });
 }
 
-fn extract_for_dh_key_position_benchmark(c: &mut Criterion) {
+fn extract_for_key_position_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
     let (sender_priv_key, _) = rgp::generate_dh_keys();
 
-    let content = vec![0u8; 1_000_000];
+    let content = vec![0u8; 8_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..10_000 {
+    for _ in 0..20_000 {
         let (_, pub_key) = rgp::generate_dh_keys();
         pub_keys.push(pub_key)
     }
@@ -147,21 +142,21 @@ fn extract_for_dh_key_position_benchmark(c: &mut Criterion) {
     )
     .unwrap();
 
-    c.bench_function("extract_for_dh_key_position", |b| {
+    c.bench_function("extract_for_key_position", |b| {
         b.iter(|| {
-            rgp::extract_for_dh_key_position(0, encrypted_content.clone()).unwrap();
+            rgp::extract_for_key_position(0, encrypted_content.clone()).unwrap();
         })
     });
 }
 
-fn extract_for_dh_key_position_mut_benchmark(c: &mut Criterion) {
+fn extract_for_key_position_mut_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
     let (sender_priv_key, _) = rgp::generate_dh_keys();
 
-    let content = vec![0u8; 1_000_000];
+    let content = vec![0u8; 8_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..10_000 {
+    for _ in 0..20_000 {
         let (_, pub_key) = rgp::generate_dh_keys();
         pub_keys.push(pub_key)
     }
@@ -173,18 +168,64 @@ fn extract_for_dh_key_position_mut_benchmark(c: &mut Criterion) {
     )
     .unwrap();
 
-    c.bench_function("extract_for_dh_key_position_mut", |b| {
+    c.bench_function("extract_for_key_position_mut", |b| {
         b.iter(|| {
-            rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content.clone()).unwrap();
+            rgp::extract_for_key_position_mut(0, &mut encrypted_content.clone()).unwrap();
         })
     });
 }
 
-fn decrypt_benchmark(c: &mut Criterion) {
+fn session_decrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, verifying_key) = rgp::generate_fingerprint();
+    let (key, _) = rgp::generate_dh_keys();
+
+    let content = vec![0u8; 8_000_000];
+
+    let (mut encrypted_content, _) =
+        rgp::encrypt(fingerprint, content, rgp::EncryptMode::Session(key)).unwrap();
+
+    rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+
+    c.bench_function("session_decrypt", |b| {
+        b.iter(|| {
+            rgp::decrypt(
+                Some(&verifying_key),
+                &encrypted_content,
+                rgp::DecryptMode::Session(key),
+            )
+            .unwrap();
+        })
+    });
+}
+
+fn hash_decrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, verifying_key) = rgp::generate_fingerprint();
+    let (hash_key, key) = rgp::generate_dh_keys();
+
+    let content = vec![0u8; 8_000_000];
+
+    let (mut encrypted_content, _) =
+        rgp::encrypt(fingerprint, content, rgp::EncryptMode::Hash(hash_key, key)).unwrap();
+
+    rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+
+    c.bench_function("hash_decrypt", |b| {
+        b.iter(|| {
+            rgp::decrypt(
+                Some(&verifying_key),
+                &encrypted_content,
+                rgp::DecryptMode::Hash(hash_key, key),
+            )
+            .unwrap();
+        })
+    });
+}
+
+fn dh_decrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = rgp::generate_fingerprint();
     let (sender_priv_key, sender_pub_key) = rgp::generate_dh_keys();
 
-    let content = vec![0u8; 1_000_000];
+    let content = vec![0u8; 8_000_000];
     let (receiver_priv_key, receiver_pub_key) = rgp::generate_dh_keys();
 
     let pub_keys = vec![receiver_pub_key];
@@ -196,15 +237,14 @@ fn decrypt_benchmark(c: &mut Criterion) {
     )
     .unwrap();
 
-    rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
+    rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
 
-    c.bench_function("decrypt", |b| {
+    c.bench_function("dh_decrypt", |b| {
         b.iter(|| {
             rgp::decrypt(
                 Some(&verifying_key),
-                sender_pub_key,
-                receiver_priv_key,
                 &encrypted_content,
+                rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
             )
             .unwrap();
         })
@@ -221,9 +261,11 @@ criterion_group!(
     hash_encrypt_benchmark,
     dh_encrypt_benchmark,
     dh_encrypt_multi_recipient_benchmark,
-    extract_for_dh_key_position_benchmark,
-    extract_for_dh_key_position_mut_benchmark,
-    decrypt_benchmark,
+    extract_for_key_position_benchmark,
+    extract_for_key_position_mut_benchmark,
+    session_decrypt_benchmark,
+    hash_decrypt_benchmark,
+    dh_decrypt_benchmark,
 );
 
 criterion_main!(benches);

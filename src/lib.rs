@@ -9,6 +9,7 @@ This file may not be copied, modified, or distributed except according to those 
 
 use std::sync::mpsc::channel;
 
+use blake2::digest::{FixedOutput, Mac};
 use chacha20::{
     cipher::{generic_array::GenericArray, typenum, StreamCipher},
     XChaCha20,
@@ -225,7 +226,7 @@ fn dh_encrypt_keys(
                 .diffie_hellman(&PublicKey::from(pub_keys[i]))
                 .to_bytes();
 
-            let mut key_cipher = XChaCha20::new(&shared_secret.into(), &nonce);
+            let mut key_cipher = XChaCha20::new(&shared_secret.into(), nonce);
 
             let mut buf = content_key.clone();
 
@@ -264,13 +265,12 @@ pub enum EncryptMode<'a> {
 /// let (mut encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
+/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
 ///
-/// let decrypted_content = rgp::decrypt(
+/// let (decrypted_content, _) = rgp::decrypt(
 ///     Some(&verifying_key),
-///     sender_pub_key,
-///     receiver_priv_key,
 ///     &encrypted_content,
+///     rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
 /// )
 /// .unwrap();
 ///
@@ -286,31 +286,27 @@ pub fn encrypt(
 
     match mode {
         EncryptMode::Session(key) => {
-            // out.push(0);
-
             let encrypted_content = encrypt_content(fingerprint, &nonce, &key.into(), content)?;
             out.extend(encrypted_content);
 
+            out.push(0);
+
             Ok((out, key))
         }
-        EncryptMode::Hash(hash_key, last_key) => {
-            // out.push(1);
-
-            use blake2::digest::{FixedOutput, Mac};
-
+        EncryptMode::Hash(hash_key, key) => {
             let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
                 .unwrap()
-                .chain_update(&last_key)
+                .chain_update(&key)
                 .finalize_fixed();
 
             let encrypted_content = encrypt_content(fingerprint, &nonce, &key, content)?;
             out.extend(encrypted_content);
 
+            out.push(1);
+
             Ok((out, key.into()))
         }
         EncryptMode::Dh(priv_key, pub_keys) => {
-            // out.push(2);
-
             use chacha20poly1305::KeyInit;
             let key = XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
 
@@ -327,6 +323,8 @@ pub fn encrypt(
 
             let encrypted_content = receiver.recv().unwrap()?;
             out.extend(encrypted_content);
+
+            out.push(2);
 
             Ok((out, key.into()))
         }
@@ -347,38 +345,43 @@ pub fn encrypt(
 /// let (encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// let encrypted_content = rgp::extract_for_dh_key_position(0, encrypted_content).unwrap();
+/// let (_, encrypted_content) = rgp::extract_for_key_position(0, encrypted_content).unwrap();
 ///
-/// let decrypted_content = rgp::decrypt(
+/// let (decrypted_content, _) = rgp::decrypt(
 ///     Some(&verifying_key),
-///     sender_pub_key,
-///     receiver_priv_key,
 ///     &encrypted_content,
+///     rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
 /// )
 /// .unwrap();
 ///
 /// assert_eq!(decrypted_content, content);
 /// ```
-pub fn extract_for_dh_key_position(
+pub fn extract_for_key_position(
     position: usize,
     mut encrypted_content: Vec<u8>,
-) -> Result<Vec<u8>, &'static str> {
-    let (keys_header_len, keys_count) = parse_keys_header(&encrypted_content)?;
+) -> Result<(u8, Vec<u8>), &'static str> {
+    let mode = encrypted_content[encrypted_content.len() - 1];
 
-    let keys_start = NONCE_LEN + keys_header_len;
-    let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
+    if mode == 2 {
+        let (keys_header_len, keys_count) = parse_keys_header(&encrypted_content)?;
 
-    let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
+        let keys_start = NONCE_LEN + keys_header_len;
+        let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
 
-    encrypted_content.copy_within(
-        encrypted_key_start..encrypted_key_start + KEY_LEN,
-        NONCE_LEN,
-    );
-    encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN + KEY_LEN);
-    encrypted_content
-        .truncate(encrypted_content.len() - keys_header_len - ((keys_count - 1) * KEY_LEN));
+        let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
 
-    Ok(encrypted_content)
+        encrypted_content.copy_within(
+            encrypted_key_start..encrypted_key_start + KEY_LEN,
+            NONCE_LEN,
+        );
+        encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN + KEY_LEN);
+        encrypted_content
+            .truncate(encrypted_content.len() - keys_header_len - ((keys_count - 1) * KEY_LEN));
+
+        return Ok((mode, encrypted_content));
+    }
+
+    Ok((mode, encrypted_content))
 }
 
 /// extract components from encrypted result, mutating the content passed in.
@@ -395,38 +398,41 @@ pub fn extract_for_dh_key_position(
 /// let (mut encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
+/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
 ///
-/// let decrypted_content = rgp::decrypt(
+/// let (decrypted_content, _) = rgp::decrypt(
 ///     Some(&verifying_key),
-///     sender_pub_key,
-///     receiver_priv_key,
 ///     &encrypted_content,
+///     rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
 /// )
 /// .unwrap();
 ///
 /// assert_eq!(decrypted_content, content);
 /// ```
-pub fn extract_for_dh_key_position_mut(
+pub fn extract_for_key_position_mut(
     position: usize,
     encrypted_content: &mut Vec<u8>,
-) -> Result<(), &'static str> {
-    let (keys_header_len, keys_count) = parse_keys_header(encrypted_content)?;
+) -> Result<u8, &'static str> {
+    let mode = encrypted_content[encrypted_content.len() - 1];
 
-    let keys_start = NONCE_LEN + keys_header_len;
-    let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
+    if mode == 2 {
+        let (keys_header_len, keys_count) = parse_keys_header(encrypted_content)?;
 
-    let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
+        let keys_start = NONCE_LEN + keys_header_len;
+        let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
 
-    encrypted_content.copy_within(
-        encrypted_key_start..encrypted_key_start + KEY_LEN,
-        NONCE_LEN,
-    );
-    encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN + KEY_LEN);
-    encrypted_content
-        .truncate(encrypted_content.len() - keys_header_len - ((keys_count - 1) * KEY_LEN));
+        let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
 
-    Ok(())
+        encrypted_content.copy_within(
+            encrypted_key_start..encrypted_key_start + KEY_LEN,
+            NONCE_LEN,
+        );
+        encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN + KEY_LEN);
+        encrypted_content
+            .truncate(encrypted_content.len() - keys_header_len - ((keys_count - 1) * KEY_LEN));
+    }
+
+    Ok(mode)
 }
 
 /// specifies how the content key should be handled for encryption.
@@ -456,13 +462,12 @@ pub enum DecryptMode {
 /// let (mut encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
+/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
 ///
-/// let decrypted_content = rgp::decrypt(
+/// let (decrypted_content, _) = rgp::decrypt(
 ///     Some(&verifying_key),
-///     sender_pub_key,
-///     receiver_priv_key,
 ///     &encrypted_content,
+///     rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
 /// )
 /// .unwrap();
 ///
@@ -470,39 +475,55 @@ pub enum DecryptMode {
 /// ```
 pub fn decrypt(
     verifying_key: Option<&[u8; 32]>,
-    pub_key: [u8; KEY_LEN],
-    priv_key: [u8; KEY_LEN],
     encrypted_content: &[u8],
-    // mode: DecryptMode,
-) -> Result<Vec<u8>, &'static str> {
-    let nonce: [u8; NONCE_LEN] = match encrypted_content[0..NONCE_LEN].try_into() {
-        Ok(key) => key,
-        Err(_) => return Err("failed to convert nonce to bytes"),
-    };
+    mode: DecryptMode,
+) -> Result<(Vec<u8>, [u8; KEY_LEN]), &'static str> {
+    let nonce = &GenericArray::<u8, typenum::U24>::from_slice(&encrypted_content[0..NONCE_LEN]);
 
-    let mut content_key = encrypted_content[NONCE_LEN..NONCE_LEN + KEY_LEN].to_vec();
+    let (content_key, encrypted_content): (GenericArray<u8, typenum::U32>, &[u8]) = match mode {
+        DecryptMode::Session(key) => (
+            key.into(),
+            &encrypted_content[NONCE_LEN..encrypted_content.len() - 1],
+        ),
+        DecryptMode::Hash(hash_key, key) => {
+            let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
+                .unwrap()
+                .chain_update(&key)
+                .finalize_fixed();
 
-    let priv_key = StaticSecret::from(priv_key);
-    let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
+            (
+                key,
+                &encrypted_content[NONCE_LEN..encrypted_content.len() - 1],
+            )
+        }
+        DecryptMode::Dh(pub_key, priv_key) => {
+            let mut content_key = encrypted_content[NONCE_LEN..NONCE_LEN + KEY_LEN].to_vec();
 
-    let mut key_cipher = {
-        use chacha20::cipher::KeyIvInit;
-        XChaCha20::new(&shared_secret.into(), &nonce.into())
-    };
+            let priv_key = StaticSecret::from(priv_key);
+            let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
 
-    key_cipher.apply_keystream(&mut content_key);
+            let mut key_cipher = {
+                use chacha20::cipher::KeyIvInit;
+                XChaCha20::new(&shared_secret.into(), nonce)
+            };
 
-    let content_key: [u8; KEY_LEN] = match content_key.try_into() {
-        Ok(key_bytes) => key_bytes,
-        Err(_) => return Err("failed to convert content key to bytes"),
+            key_cipher.apply_keystream(&mut content_key);
+
+            let content_key = GenericArray::<u8, typenum::U32>::from_mut_slice(&mut content_key);
+
+            (
+                *content_key,
+                &encrypted_content[NONCE_LEN + KEY_LEN..encrypted_content.len() - 1],
+            )
+        }
     };
 
     let content_cipher = {
         use chacha20poly1305::KeyInit;
-        XChaCha20Poly1305::new(&content_key.into())
+        XChaCha20Poly1305::new(&content_key)
     };
 
-    match content_cipher.decrypt(&nonce.into(), &encrypted_content[NONCE_LEN + KEY_LEN..]) {
+    match content_cipher.decrypt(nonce, encrypted_content) {
         Ok(mut content) => {
             let signature = content.split_off(content.len() - SIGNATURE_LEN);
 
@@ -514,9 +535,9 @@ pub fn decrypt(
                     };
 
                     verify(&signature_as_bytes, verifying_key, &content)?;
-                    Ok(content)
+                    Ok((content, content_key.into()))
                 }
-                None => Ok(content),
+                None => Ok((content, content_key.into())),
             }
         }
         Err(_) => return Err("failed to decrypt content"),
