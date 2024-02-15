@@ -50,7 +50,7 @@ assert_eq!(decrypted_content, content);
 
 ## Modes
 
-There are currently 3 supported `Mode`s: Diffie-Hellman (`Dh`), `Hash`, and `Session`.
+There are currently 3 supported modes: `Dh` (Diffie-Hellman), `Hash`, and `Session`.
 
 ### Diffie-Hellman
 
@@ -75,9 +75,10 @@ Hash mode, while it doesn't provide the same level of security as random key gen
 
 Process:
 
-1. Hash the content key
-2. Sign plaintext to generate **content signature**
-3. Encrypt plaintext and **content signature** with the _hashed_ **content key**
+1. Generate **nonce**
+2. Hash the content key
+3. Sign plaintext to generate **content signature**
+4. Encrypt plaintext and **content signature** with the _hashed_ **content key**
 
 ### Session
 
@@ -85,8 +86,9 @@ This mode provides no forward or backward secrecy, and uses the provided key "as
 
 Process:
 
-1. Sign plaintext to generate **content signature**
-2. Encrypt plaintext and **content signature** with the provided **content key**, as is
+1. Generate **nonce**
+2. Sign plaintext to generate **content signature**
+3. Encrypt plaintext and **content signature** with the provided **content key**, as is
 
 ## Ciphersuite
 
@@ -96,23 +98,23 @@ Process:
 - X25519 for Diffie-Hellman **shared secret** generation
 - XChaCha20 for _one-time_ **content key** encryption
 
-## Performance
-
-To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml) under job/Benchmark.
-
 ## Encrypted Format
 
 - **nonce** = 24 bytes
-- mode = 1 byte (0 for `Session` | 1 for `Hash` | 2 for Diffie-Hellman)
-- keys count (1-9 bytes)
-    - int size = 2 bits (0 for u8+63 | 1 for u16+63 | 2 for u32+63 | 3 for u64+63)
+- mode = 1 byte (0 for `Session` | 1 for `Hash` | 2 for `Dh`)
+- keys count (`Dh` mode only)
+    - int size = 2 bits
     - count
         - numbers 0-63 = 6 bits
         - numbers >63 = 1-8 bytes (big endian int)
-- encrypted keys = pub_keys.len() * 32 bytes
+- encrypted copies of **content key** (`Dh` mode only) = pub_keys.len() * 32 bytes
 - encrypted content = content.len()
 - **signature** = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
+
+## Performance
+
+To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml) under job/Benchmark.
 
 ## License
 

@@ -236,8 +236,8 @@ fn dh_encrypt_keys(
     (header, keys)
 }
 
-/// specifies how the content key should be managed.
-pub enum Mode<'a> {
+/// specifies how the content key should be handled for encryption.
+pub enum EncryptMode<'a> {
     /// generates random content key and encrypts for all
     /// recipients with their respective DH shared secret.
     Dh([u8; KEY_LEN], &'a Vec<[u8; KEY_LEN]>),
@@ -262,9 +262,9 @@ pub enum Mode<'a> {
 /// let pub_keys = vec![receiver_pub_key];
 ///
 /// let (mut encrypted_content, _) =
-///     rgp::encrypt(fingerprint, content.clone(), rgp::Mode::Dh(sender_priv_key, &pub_keys)).unwrap();
+///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+/// rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
 ///
 /// let decrypted_content = rgp::decrypt(
 ///     Some(&verifying_key),
@@ -279,13 +279,13 @@ pub enum Mode<'a> {
 pub fn encrypt(
     fingerprint: [u8; 32],
     content: Vec<u8>,
-    mode: Mode,
+    mode: EncryptMode,
 ) -> Result<(Vec<u8>, [u8; KEY_LEN]), &'static str> {
     let nonce = XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
     let mut out = nonce.to_vec();
 
     match mode {
-        Mode::Session(key) => {
+        EncryptMode::Session(key) => {
             // out.push(0);
 
             let encrypted_content = encrypt_content(fingerprint, &nonce, &key.into(), content)?;
@@ -293,7 +293,7 @@ pub fn encrypt(
 
             Ok((out, key))
         }
-        Mode::Hash(hash_key, last_key) => {
+        EncryptMode::Hash(hash_key, last_key) => {
             // out.push(1);
 
             use blake2::digest::{FixedOutput, Mac};
@@ -308,7 +308,7 @@ pub fn encrypt(
 
             Ok((out, key.into()))
         }
-        Mode::Dh(priv_key, pub_keys) => {
+        EncryptMode::Dh(priv_key, pub_keys) => {
             // out.push(2);
 
             use chacha20poly1305::KeyInit;
@@ -347,7 +347,7 @@ pub fn encrypt(
 /// let (encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::Mode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// let encrypted_content = rgp::extract_for_key_position(0, encrypted_content).unwrap();
+/// let encrypted_content = rgp::extract_for_dh_key_position(0, encrypted_content).unwrap();
 ///
 /// let decrypted_content = rgp::decrypt(
 ///     Some(&verifying_key),
@@ -359,7 +359,7 @@ pub fn encrypt(
 ///
 /// assert_eq!(decrypted_content, content);
 /// ```
-pub fn extract_for_key_position(
+pub fn extract_for_dh_key_position(
     position: usize,
     mut encrypted_content: Vec<u8>,
 ) -> Result<Vec<u8>, &'static str> {
@@ -395,7 +395,7 @@ pub fn extract_for_key_position(
 /// let (mut encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::Mode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+/// rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
 ///
 /// let decrypted_content = rgp::decrypt(
 ///     Some(&verifying_key),
@@ -407,7 +407,7 @@ pub fn extract_for_key_position(
 ///
 /// assert_eq!(decrypted_content, content);
 /// ```
-pub fn extract_for_key_position_mut(
+pub fn extract_for_dh_key_position_mut(
     position: usize,
     encrypted_content: &mut Vec<u8>,
 ) -> Result<(), &'static str> {
@@ -429,6 +429,19 @@ pub fn extract_for_key_position_mut(
     Ok(())
 }
 
+/// specifies how the content key should be handled for encryption.
+pub enum DecryptMode {
+    /// receiver priv key and sender pub key.
+    Dh([u8; KEY_LEN], [u8; KEY_LEN]),
+
+    /// hashes the second tuple member, with the first
+    /// tuple member as the hash key.
+    Hash([u8; KEY_LEN], [u8; KEY_LEN]),
+
+    /// uses the key that is passed in without modification.
+    Session([u8; KEY_LEN]),
+}
+
 /// content decryption.
 ///
 /// ```rust
@@ -443,7 +456,7 @@ pub fn extract_for_key_position_mut(
 /// let (mut encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::Mode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+/// rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
 ///
 /// let decrypted_content = rgp::decrypt(
 ///     Some(&verifying_key),
@@ -460,6 +473,7 @@ pub fn decrypt(
     pub_key: [u8; KEY_LEN],
     priv_key: [u8; KEY_LEN],
     encrypted_content: &[u8],
+    // mode: DecryptMode,
 ) -> Result<Vec<u8>, &'static str> {
     let nonce: [u8; NONCE_LEN] = match encrypted_content[0..NONCE_LEN].try_into() {
         Ok(key) => key,

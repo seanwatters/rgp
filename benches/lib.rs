@@ -55,7 +55,12 @@ fn session_encrypt_benchmark(c: &mut Criterion) {
 
     c.bench_function("session_encrypt", |b| {
         b.iter(|| {
-            rgp::encrypt(fingerprint, content.clone(), rgp::Mode::Session(priv_key)).unwrap();
+            rgp::encrypt(
+                fingerprint,
+                content.clone(),
+                rgp::EncryptMode::Session(priv_key),
+            )
+            .unwrap();
         })
     });
 }
@@ -71,7 +76,7 @@ fn hash_encrypt_benchmark(c: &mut Criterion) {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::Mode::Hash(priv_key, priv_key),
+                rgp::EncryptMode::Hash(priv_key, priv_key),
             )
             .unwrap();
         })
@@ -92,7 +97,7 @@ fn dh_encrypt_benchmark(c: &mut Criterion) {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::Mode::Dh(sender_priv_key, &pub_keys),
+                rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
             )
             .unwrap();
         })
@@ -116,14 +121,14 @@ fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::Mode::Dh(sender_priv_key, &pub_keys),
+                rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
             )
             .unwrap();
         })
     });
 }
 
-fn extract_for_key_position_benchmark(c: &mut Criterion) {
+fn extract_for_dh_key_position_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
     let (sender_priv_key, _) = rgp::generate_dh_keys();
 
@@ -138,18 +143,18 @@ fn extract_for_key_position_benchmark(c: &mut Criterion) {
     let (encrypted_content, _) = rgp::encrypt(
         fingerprint,
         content,
-        rgp::Mode::Dh(sender_priv_key, &pub_keys),
+        rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
     )
     .unwrap();
 
-    c.bench_function("extract_for_key_position", |b| {
+    c.bench_function("extract_for_dh_key_position", |b| {
         b.iter(|| {
-            rgp::extract_for_key_position(0, encrypted_content.clone()).unwrap();
+            rgp::extract_for_dh_key_position(0, encrypted_content.clone()).unwrap();
         })
     });
 }
 
-fn extract_for_key_position_mut_benchmark(c: &mut Criterion) {
+fn extract_for_dh_key_position_mut_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
     let (sender_priv_key, _) = rgp::generate_dh_keys();
 
@@ -164,13 +169,13 @@ fn extract_for_key_position_mut_benchmark(c: &mut Criterion) {
     let (encrypted_content, _) = rgp::encrypt(
         fingerprint,
         content,
-        rgp::Mode::Dh(sender_priv_key, &pub_keys),
+        rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
     )
     .unwrap();
 
-    c.bench_function("extract_for_key_position_mut", |b| {
+    c.bench_function("extract_for_dh_key_position_mut", |b| {
         b.iter(|| {
-            rgp::extract_for_key_position_mut(0, &mut encrypted_content.clone()).unwrap();
+            rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content.clone()).unwrap();
         })
     });
 }
@@ -187,11 +192,11 @@ fn decrypt_benchmark(c: &mut Criterion) {
     let (mut encrypted_content, _) = rgp::encrypt(
         fingerprint,
         content,
-        rgp::Mode::Dh(sender_priv_key, &pub_keys),
+        rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
     )
     .unwrap();
 
-    rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+    rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
 
     c.bench_function("decrypt", |b| {
         b.iter(|| {
@@ -216,8 +221,8 @@ criterion_group!(
     hash_encrypt_benchmark,
     dh_encrypt_benchmark,
     dh_encrypt_multi_recipient_benchmark,
-    extract_for_key_position_benchmark,
-    extract_for_key_position_mut_benchmark,
+    extract_for_dh_key_position_benchmark,
+    extract_for_dh_key_position_mut_benchmark,
     decrypt_benchmark,
 );
 
