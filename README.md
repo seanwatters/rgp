@@ -11,10 +11,10 @@ Relatively Good Privacy
 ## Usage
 
 ```rust
-let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
+let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 
-let (sender_priv_key, sender_pub_key) = rgp::generate_exchange_keys();
-let (first_recipient_priv_key, first_recipient_pub_key) = rgp::generate_exchange_keys();
+let (sender_priv_key, sender_pub_key) = rgp::generate_dh_keys();
+let (first_recipient_priv_key, first_recipient_pub_key) = rgp::generate_dh_keys();
 
 let mut pub_keys = vec![first_recipient_pub_key];
 
@@ -23,26 +23,21 @@ let content = vec![0u8; 8_000_000];
 
 // add another 20,000 recipients
 for _ in 0..20_000 {
-    let (_, pub_key) = rgp::generate_exchange_keys();
+    let (_, pub_key) = rgp::generate_dh_keys();
     pub_keys.push(pub_key)
 }
 
-let mut encrypted_content = rgp::content::encrypt(
+let (mut encrypted_content, _) = rgp::encrypt(
     fingerprint,
     content.clone(),
-    sender_priv_key,
-    &pub_keys,
+    rgp::Mode::Dh(sender_priv_key, &pub_keys),
 )
 .unwrap();
 
 // extract for first recipient
-rgp::content::extract_content_for_key_position(
-    &mut encrypted_content,
-    0
-)
-.unwrap();
+rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
 
-let decrypted_content = rgp::content::decrypt(
+let decrypted_content = rgp::decrypt(
     Some(&verifying_key),
     sender_pub_key,
     first_recipient_priv_key,
@@ -53,62 +48,62 @@ let decrypted_content = rgp::content::decrypt(
 assert_eq!(decrypted_content, content);
 ```
 
-### Disable Multi-threading
+## Modes
 
-The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](https://crates.io/crates/rayon) crate. It only impacts the `content::encrypt` function, but can be disabled by setting `default-features` to `false`.
+There are currently 3 supported `Mode`s: Diffie-Hellman (`Dh`), `Hash`, and `Session`.
 
-```toml
-# Cargo.toml
+### Diffie-Hellman
 
-[dependencies]
-rgp = { version = "x.x.x", default-features = false }
-```
+Diffie-Hellman mode is the most resilient to break-ins as it generates a fresh/random **content key**, and encrypts it with a **shared secret** for each intended recipient for each message. It is also currently the option with the highest overhead for both computation and storage, as it inflates the encrypted content payload by 32 bytes for each recipient, and also requires the computation of the **shared secret** / encryption of the **content key** with said **shared secret** on a per-recipient basis.
 
-## Process
+`Dh` mode should always be used to bootstrap an interaction even if `Hash` and/or `Session` modes are sufficiently secure for the use case, post key exchange.
+
+Process:
 
 1. Generate one-time components
     - **nonce**
     - **content key**
 2. Sign plaintext to generate **content signature**
-3. Encrypt plaintext and **content signature** with **one-time content key**
-4. Encrypt **one-time content key** for all recipients
+3. Encrypt plaintext and **content signature** with _one-time_ **content key**
+4. Encrypt _one-time_ **content key** for all recipients
     - Generate **shared secret** with **recipient public key** and **sender private key**
-    - Encrypt **one-time content key** with **shared secret**
+    - Encrypt _one-time_ **content key** with **shared secret**
+
+### Hash
+
+Hash mode, while it doesn't provide the same level of security as random key generation/per-recipient key encryption, it does enable backward secrecy, and when used with a non-constant hash key/value, it can protect forward secrecy when only the **content key** is compromised.
+
+Process:
+
+1. Hash the content key
+2. Sign plaintext to generate **content signature**
+3. Encrypt plaintext and **content signature** with the _hashed_ **content key**
+
+### Session
+
+This mode provides no forward or backward secrecy, and uses the provided key "as is" without any modification. This is essentially the same as just running the underlying symmetric cipher.
+
+Process:
+
+1. Sign plaintext to generate **content signature**
+2. Encrypt plaintext and **content signature** with the provided **content key**, as is
 
 ## Ciphersuite
 
+- Blake2s256 for **content key** hashing
 - Ed25519 for **signatures**
 - XChaCha20Poly1305 for content
 - X25519 for Diffie-Hellman **shared secret** generation
-- XChaCha20 for **one-time content key** encryption
+- XChaCha20 for _one-time_ **content key** encryption
 
 ## Performance
 
-For the 8mb example with 20,000 recipients, on my M1 MacBook Pro
-
-| Operation               | Time      |
-| ----------------------- | --------- |
-| encrypt (multi-thread)  | 96.606 ms |
-| encrypt (single-thread) | 758.99 ms |
-| extract                 | 322.95 µs |
-| decrypt                 | 44.399 ms |
-
-Doing the equivalent operation for just 1 recipient on 8mb is
-
-| Operation               | Time      |
-| ----------------------- | --------- |
-| encrypt (multi-thread)  | 60.714 ms |
-| encrypt (single-thread) | 60.889 ms |
-
-When benchmarked in isolation, the signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms, respectively.
-
-To check performance on your machine, run `cargo bench` (or `cargo bench --no-default-features` to disable multi-threading). You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml) under job/Benchmark or job/Benchmark (single threaded).
-
-**NOTE:** in multi-threaded mode the content signing/encryption logic is done in a separate thread from the per-recipient **content key** encryption, and the **content key** encryption work is done in a Rayon `par_chunks_mut` for loop. There is likely an opportunity for further parallelization in the content encryption and signing step.
+To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml) under job/Benchmark.
 
 ## Encrypted Format
 
 - **nonce** = 24 bytes
+- mode = 1 byte (0 for `Session` | 1 for `Hash` | 2 for Diffie-Hellman)
 - keys count (1-9 bytes)
     - int size = 2 bits (0 for u8+63 | 1 for u16+63 | 2 for u32+63 | 3 for u64+63)
     - count

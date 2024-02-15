@@ -1,6 +1,6 @@
 # Copyright (c) 2024 sean watters
 #
-# Licensed under the MIT license <LICENSE-MIT or https://opensource.org/license/MIT>.
+# Licensed under the MIT license <LICENSE or https://opensource.org/license/MIT>.
 # This file may not be copied, modified, or distributed except according to those terms.
 
 [package]
@@ -17,19 +17,16 @@ repository = "https://github.com/seanwatters/rgp"
 version = "0.1.12"
 
 [dependencies]
+blake2 = "0.10.6"
 chacha20 = "0.9.1"
 chacha20poly1305 = "0.10.1"
 ed25519-dalek = { version = "2.0.0", features = ["rand_core"] }
 rand_core = "0.6.4"
-rayon = { version = "1.8.1", optional = true }
+rayon = "1.8.1"
 x25519-dalek = { version =  "2.0.0", features = ["static_secrets"] }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
-
-[features]
-default = ["multi-thread"]
-multi-thread = ["dep:rayon"]
 
 [[bench]]
 name = "lib"
