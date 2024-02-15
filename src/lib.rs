@@ -106,7 +106,7 @@ pub mod content {
     #[cfg(feature = "multi-thread")]
     use rayon::prelude::*;
     #[cfg(feature = "multi-thread")]
-    use std::thread;
+    use std::sync::mpsc::channel;
 
     use chacha20::{cipher::StreamCipher, XChaCha20 as ChaCha};
     use chacha20poly1305::{aead::Aead, AeadCore, XChaCha20Poly1305 as ChaChaAEAD};
@@ -133,18 +133,24 @@ pub mod content {
         // sign/encrypt content
 
         #[cfg(feature = "multi-thread")]
-        let sign_and_encrypt_handle = thread::spawn(move || {
-            use chacha20poly1305::KeyInit;
+        let sign_and_encrypt_rx = {
+            let (tx, rx) = channel();
 
-            let signature = super::signature::sign(&fingerprint, &content);
-            content.extend(signature);
+            rayon::spawn(move || {
+                use chacha20poly1305::KeyInit;
 
-            let content_cipher = ChaChaAEAD::new(&content_key);
-            match content_cipher.encrypt(&nonce, content.as_ref()) {
-                Ok(encrypted_content) => Ok(encrypted_content),
-                Err(_) => Err("failed to encrypt content"),
-            }
-        });
+                let signature = super::signature::sign(&fingerprint, &content);
+                content.extend(signature);
+
+                let content_cipher = ChaChaAEAD::new(&content_key);
+                match content_cipher.encrypt(&nonce, content.as_ref()) {
+                    Ok(encrypted_content) => tx.send(Ok(encrypted_content)).unwrap(),
+                    Err(_) => tx.send(Err("failed to encrypt content")).unwrap(),
+                }
+            });
+
+            rx
+        };
 
         #[cfg(not(feature = "multi-thread"))]
         let encrypted_content = {
@@ -234,7 +240,7 @@ pub mod content {
         out.extend(encrypted_keys);
 
         #[cfg(feature = "multi-thread")]
-        let encrypted_content = sign_and_encrypt_handle.join().unwrap()?;
+        let encrypted_content = sign_and_encrypt_rx.recv().unwrap()?;
         out.extend(encrypted_content);
 
         Ok(out)
