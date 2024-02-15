@@ -30,12 +30,12 @@ for _ in 0..20_000 {
 let (mut encrypted_content, _) = rgp::encrypt(
     fingerprint,
     content.clone(),
-    rgp::Mode::Dh(sender_priv_key, &pub_keys),
+    rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
 )
 .unwrap();
 
 // extract for first recipient
-rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
 
 let decrypted_content = rgp::decrypt(
     Some(&verifying_key),

@@ -345,7 +345,7 @@ pub fn encrypt(
 /// let pub_keys = vec![receiver_pub_key];
 ///
 /// let (encrypted_content, _) =
-///     rgp::encrypt(fingerprint, content.clone(), rgp::Mode::Dh(sender_priv_key, &pub_keys)).unwrap();
+///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
 /// let encrypted_content = rgp::extract_for_dh_key_position(0, encrypted_content).unwrap();
 ///
@@ -393,7 +393,7 @@ pub fn extract_for_dh_key_position(
 /// let pub_keys = vec![receiver_pub_key];
 ///
 /// let (mut encrypted_content, _) =
-///     rgp::encrypt(fingerprint, content.clone(), rgp::Mode::Dh(sender_priv_key, &pub_keys)).unwrap();
+///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
 /// rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
 ///
@@ -454,7 +454,7 @@ pub enum DecryptMode {
 /// let pub_keys = vec![receiver_pub_key];
 ///
 /// let (mut encrypted_content, _) =
-///     rgp::encrypt(fingerprint, content.clone(), rgp::Mode::Dh(sender_priv_key, &pub_keys)).unwrap();
+///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
 /// rgp::extract_for_dh_key_position_mut(0, &mut encrypted_content).unwrap();
 ///
