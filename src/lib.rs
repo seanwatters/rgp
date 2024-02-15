@@ -435,7 +435,7 @@ pub fn extract_for_key_position_mut(
     Ok(mode)
 }
 
-/// specifies how the content key should be handled for encryption.
+/// specifies how the content key should be handled for decryption.
 pub enum DecryptMode {
     /// receiver priv key and sender pub key.
     Dh([u8; KEY_LEN], [u8; KEY_LEN]),
