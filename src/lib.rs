@@ -22,7 +22,7 @@ const NONCE_LEN: usize = 24;
 const KEY_LEN: usize = 32;
 const SIGNATURE_LEN: usize = 64;
 
-/// for generating fingerprints for signatures.
+/// generates fingerprints and verifying keys for signing.
 ///
 /// ```rust
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
@@ -46,7 +46,7 @@ pub fn generate_fingerprint() -> ([u8; 32], [u8; 32]) {
     )
 }
 
-/// for signing content.
+/// signs content.
 ///
 /// ```rust
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
@@ -69,7 +69,7 @@ pub fn sign(fingerprint: &[u8; 32], content: &[u8]) -> [u8; 64] {
     signature.to_bytes()
 }
 
-/// for verifying signatures.
+/// verifies signatures.
 ///
 /// ```rust
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
@@ -102,7 +102,7 @@ pub fn verify(
     }
 }
 
-/// for generating pub/priv key pairs.
+/// generates Diffie-Hellman pub/priv key pairs.
 ///
 /// ```rust
 /// let (priv_key, pub_key) = rgp::generate_dh_keys();
