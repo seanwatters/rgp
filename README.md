@@ -18,7 +18,7 @@ Relatively Good Privacy
 
 ## Modes
 
-There are currently three supported modes: `Dh` (Diffie-Hellman), `Hash`, and `Session`. All modes provide the ability to sign content and verify the sender. Deniability is preserved by signing the plaintext and encrypting alongside it.
+There are currently three supported modes: `Dh` (Diffie-Hellman), `Hash`, and `Session`. All modes provide the ability to sign content and verify the sender. Deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
 
 ### Diffie-Hellman
 
