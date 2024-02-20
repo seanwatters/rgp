@@ -245,7 +245,7 @@ pub enum EncryptMode<'a> {
 
     /// hashes the second tuple member, with the first
     /// tuple member as the hash key.
-    Hash([u8; KEY_LEN], [u8; KEY_LEN]),
+    Hmac([u8; KEY_LEN], [u8; KEY_LEN]),
 
     /// uses the key that is passed in without modification.
     Session([u8; KEY_LEN]),
@@ -293,7 +293,7 @@ pub fn encrypt(
 
             Ok((out, key))
         }
-        EncryptMode::Hash(hash_key, key) => {
+        EncryptMode::Hmac(hash_key, key) => {
             let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
                 .unwrap()
                 .chain_update(&key)
@@ -442,7 +442,7 @@ pub enum DecryptMode {
 
     /// hashes the second tuple member, with the first
     /// tuple member as the hash key.
-    Hash([u8; KEY_LEN], [u8; KEY_LEN]),
+    Hmac([u8; KEY_LEN], [u8; KEY_LEN]),
 
     /// uses the key that is passed in without modification.
     Session([u8; KEY_LEN]),
@@ -485,7 +485,7 @@ pub fn decrypt(
             key.into(),
             &encrypted_content[NONCE_LEN..encrypted_content.len() - 1],
         ),
-        DecryptMode::Hash(hash_key, key) => {
+        DecryptMode::Hmac(hash_key, key) => {
             let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
                 .unwrap()
                 .chain_update(&key)

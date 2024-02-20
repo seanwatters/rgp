@@ -71,7 +71,7 @@ fn hash_encrypt_benchmark(c: &mut Criterion) {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::EncryptMode::Hash(hash_key, key),
+                rgp::EncryptMode::Hmac(hash_key, key),
             )
             .unwrap();
         })
@@ -205,7 +205,7 @@ fn hash_decrypt_benchmark(c: &mut Criterion) {
     let content = vec![0u8; 8_000_000];
 
     let (mut encrypted_content, _) =
-        rgp::encrypt(fingerprint, content, rgp::EncryptMode::Hash(hash_key, key)).unwrap();
+        rgp::encrypt(fingerprint, content, rgp::EncryptMode::Hmac(hash_key, key)).unwrap();
 
     rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
 
@@ -214,7 +214,7 @@ fn hash_decrypt_benchmark(c: &mut Criterion) {
             rgp::decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                rgp::DecryptMode::Hash(hash_key, key),
+                rgp::DecryptMode::Hmac(hash_key, key),
             )
             .unwrap();
         })

@@ -18,19 +18,19 @@ Relatively Good Privacy
 
 ## Modes
 
-There are currently three supported modes: `Dh` (Diffie-Hellman), `Hash`, and `Session`. All modes provide the ability to sign content and verify the sender. Deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
+There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `Session`. All modes provide the ability to sign content and verify the sender. Deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
 
 ### Diffie-Hellman
 
 `Dh` mode provides forward secrecy as it generates a fresh/random **content key** for each message. The **content key** is then encrypted with each recipients' **shared secrets**. But with the added security of forward secrecy comes the computational and storage overhead of encrypting and attaching the encrypted **content key** for each recipient.
 
 ```rust
-let (alice_fingerprint, alice_verifying_key) = rgp::generate_fingerprint();
+let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 
-let (alice_priv_key, alice_pub_key) = rgp::generate_dh_keys();
-let (bob_priv_key, bob_pub_key) = rgp::generate_dh_keys();
+let (sender_priv_key, sender_pub_key) = rgp::generate_dh_keys();
+let (receiver_priv_key, receiver_pub_key) = rgp::generate_dh_keys();
 
-let mut pub_keys = vec![bob_pub_key];
+let mut pub_keys = vec![receiver_pub_key];
 
 // 8mb
 let content = vec![0u8; 8_000_000];
@@ -43,9 +43,9 @@ for _ in 0..20_000 {
 
 // encrypt Alice's message for all recipients
 let (mut encrypted_content, content_key) = rgp::encrypt(
-    alice_fingerprint,
+    fingerprint,
     content.clone(),
-    rgp::EncryptMode::Dh(alice_priv_key, &pub_keys),
+    rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
 )
 .unwrap();
 
@@ -54,9 +54,9 @@ rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
 
 // decrypt Alice's message for Bob
 let (decrypted_content, decrypted_content_key) = rgp::decrypt(
-    Some(&alice_verifying_key),
+    Some(&verifying_key),
     &encrypted_content,
-    rgp::DecryptMode::Dh(alice_pub_key, bob_priv_key),
+    rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
 )
 .unwrap();
 
@@ -75,31 +75,31 @@ assert_eq!(decrypted_content_key, content_key);
     - Generate **shared secret** with **recipient public key** and **sender private key**
     - Encrypt **content key** with **shared secret**
 
-### Hash
+### HMAC
 
-`Hash` mode, while it doesn't provide the same level of security as random key generation + per-recipient key encryption, it does enable backward secrecy, and when used with a non-constant hash key/value, it can enable forward secrecy when only the **content key** is compromised.
+`Hmac` mode, while it doesn't provide the same level of security as random key generation + per-recipient key encryption, it does enable backward secrecy, and when used with a non-constant key, it can enable forward secrecy when only the **content key** is compromised.
 
 ```rust
-let (alice_fingerprint, alice_verifying_key) = rgp::generate_fingerprint();
+let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 
 let hash_key = [0u8; 32]; // use an actual key
 let hash_value = [1u8; 32]; // use an actual key
 
 let content = vec![0u8; 8_000_000];
 
-// encrypt Alice's message in `Hash` mode
+// encrypt Alice's message in `Hmac` mode
 let (mut encrypted_content, content_key) = rgp::encrypt(
-    alice_fingerprint,
+    fingerprint,
     content.clone(),
-    rgp::EncryptMode::Hash(hash_key, hash_value),
+    rgp::EncryptMode::Hmac(hash_key, hash_value),
 )
 .unwrap();
 
-// decrypt Alice's message in `Hash` mode
+// decrypt Alice's message in `Hmac` mode
 let (decrypted_content, hashed_content_key) = rgp::decrypt(
-    Some(&alice_verifying_key),
+    Some(&verifying_key),
     &encrypted_content,
-    rgp::DecryptMode::Hash(hash_key, hash_value),
+    rgp::DecryptMode::Hmac(hash_key, hash_value),
 )
 .unwrap();
 
@@ -110,7 +110,7 @@ assert_eq!(hashed_content_key, content_key);
 **Internal Process:**
 
 1. Generate **nonce**
-2. Hash the content key
+2. Hmac the content key
 3. Sign plaintext to generate **content signature**
 4. Encrypt plaintext and **content signature** with the hashed **content key**
 
@@ -119,14 +119,14 @@ assert_eq!(hashed_content_key, content_key);
 This mode provides no forward or backward secrecy, and uses the provided key "as is" without any modification. From an encryption perspective, this is essentially the same as just running the underlying symmetric cipher.
 
 ```rust
-let (alice_fingerprint, alice_verifying_key) = rgp::generate_fingerprint();
+let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 
 let session_key = [0u8; 32]; // use an actual key
 let content = vec![0u8; 8_000_000];
 
 // encrypt Alice's message with a session key
 let (mut encrypted_content, _) = rgp::encrypt(
-    alice_fingerprint,
+    fingerprint,
     content.clone(),
     rgp::EncryptMode::Session(session_key),
 )
@@ -134,7 +134,7 @@ let (mut encrypted_content, _) = rgp::encrypt(
 
 // decrypt Alice's message with session key
 let (decrypted_content, _) = rgp::decrypt(
-    Some(&alice_verifying_key),
+    Some(&verifying_key),
     &encrypted_content,
     rgp::DecryptMode::Session(session_key),
 )
@@ -161,7 +161,7 @@ assert_eq!(decrypted_content, content);
 - encrypted content = content.len()
 - **signature** = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
-- mode = 1 byte (0 for `Session` | 1 for `Hash` | 2 for `Dh`)
+- mode = 1 byte (0 for `Session` | 1 for `Hmac` | 2 for `Dh`)
 
 ## Performance
 
