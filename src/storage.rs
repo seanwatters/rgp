@@ -1,28 +1,4 @@
-// !! public key "ratcheting" increments will be buried in the ciphertext of messages
-
-// * any McEliece usage will inflate the per-recipient multiplier by
-// * at least 96 bytes (assuming the 348864 variant is used) to accommodate
-// * the kem ciphertext. McEliece is picked because its ciphertext is significantly
-// * smaller than the alternative PQ kem options.
-
-// ?? `Mode` should probably get a full byte for the transport/storage
-// ?? just to accommodate future iterations; so the remaining 5 bits
-// ?? can be reserved.
-pub enum Mode {
-    /// encrypts content key with a McEliece session key
-    Kem,
-    /// encrypts content key with a DH shared secret
-    Dh,
-
-    /// encrypts content key with the result of a DH shared
-    /// secret and McEliece session key getting hashed together
-    Hybrid,
-
-    /// hashes the last key
-    Hash,
-    /// reuses last key
-    Nil,
-}
+use crate::EncryptMode;
 
 struct SendStream {
     id: [u8; 16],
@@ -38,7 +14,7 @@ struct SendStream {
 }
 
 impl SendStream {
-    pub fn put(&self, mode: Mode) {}
+    pub fn push(&self, mode: EncryptMode) {}
 }
 
 struct RecvStream {
@@ -57,7 +33,7 @@ struct RecvStream {
 }
 
 impl RecvStream {
-    pub fn sync(&self) {}
+    pub fn pull(&self) {}
 }
 
 /*
@@ -110,13 +86,13 @@ struct Interaction {
 }
 
 impl Interaction {
-    pub fn put(&self, mode: Mode) {
-        self.send_stream.put(mode)
+    pub fn push(&self, mode: EncryptMode) {
+        self.send_stream.push(mode)
     }
 
-    pub fn sync_all(&self) {
+    pub fn pull_all(&self) {
         for recv_stream in &self.recv_streams {
-            recv_stream.sync()
+            recv_stream.pull()
         }
     }
 }
