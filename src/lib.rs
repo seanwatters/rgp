@@ -7,7 +7,7 @@ This file may not be copied, modified, or distributed except according to those 
 
 #![doc = include_str!("../README.md")]
 
-mod storage;
+mod interaction;
 
 use std::sync::mpsc::channel;
 
