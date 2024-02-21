@@ -22,7 +22,7 @@ There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `S
 
 ### Diffie-Hellman
 
-`Dh` mode provides forward secrecy by generating a fresh/random **content key** for each message. The **content key** is then encrypted with each recipients' **shared secrets**.
+`Dh` mode provides forward secrecy by generating a fresh/random content key for each message and encrypting a copy of that key for each recipient (similar to the way PGP session keys work).
 
 ```rust
 let (fingerprint, verifying_key) = rgp::generate_fingerprint();
@@ -77,21 +77,21 @@ assert_eq!(decrypted_content_key, content_key);
 
 #### Format:
 
-- **nonce** = 24 bytes
+- nonce = 24 bytes
 - keys count
     - int size = 2 bits
     - count
         - numbers 0-63 = 6 bits
         - numbers >63 = 1-8 bytes (big endian int)
-- encrypted copies of **content key** = pub_keys.len() * 32 bytes
+- encrypted copies of content key = pub_keys.len() * 32 bytes
 - encrypted content = content.len()
-- **signature** = 64 bytes (encrypted along with the content to preserve deniability)
+- signature = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
 - mode = 1 byte (set to 2 for `Dh`)
 
 ### HMAC
 
-`Hmac` mode provides backward secrecy, and can enable forward secrecy when a non-constant hash key is used and only the **content key** is compromised.
+`Hmac` mode provides backward secrecy, and can enable forward secrecy when both the HMAC key and value are kept secret, and only the content key is compromised.
 
 ```rust
 let (fingerprint, verifying_key) = rgp::generate_fingerprint();
@@ -130,9 +130,9 @@ assert_eq!(hashed_content_key, content_key);
 
 #### Format:
 
-- **nonce** = 24 bytes
+- nonce = 24 bytes
 - encrypted content = content.len()
-- **signature** = 64 bytes (encrypted along with the content to preserve deniability)
+- signature = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
 - mode = 1 byte (set to 1 for `Hmac`)
 
@@ -173,9 +173,9 @@ assert_eq!(decrypted_content, content);
 
 #### Format:
 
-- **nonce** = 24 bytes
+- nonce = 24 bytes
 - encrypted content = content.len()
-- **signature** = 64 bytes (encrypted along with the content to preserve deniability)
+- signature = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
 - mode = 1 byte (set to 0 for `Hmac`)
 
