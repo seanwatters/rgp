@@ -1,13 +1,23 @@
 use std::error::Error;
 use uuid::Uuid;
 
-use crate::EncryptMode;
+use crate::{generate_dh_keys, usize_to_bytes, DecryptMode, EncryptMode};
 
+pub enum SendMode {
+    Dh,
+    // ?? HMAC interaction messages are going to need to add
+    // ?? the iterator value to their payload so they'll be have
+    // ?? an additional 1-9 bytes.
+    Hmac,
+    Session,
+}
+
+/// facilitates binding to remote for `Interactions`.
 pub trait Connection {
     fn create_stream(&self) -> Result<Uuid, Box<dyn Error>>;
 
-    fn push(&self, id: Uuid) -> Result<(), Box<dyn Error>>;
-    fn pull(&self, id: Uuid) -> Result<Vec<&[u8]>, Box<dyn Error>>;
+    fn send(&self, id: Uuid, encrypted: &[u8]) -> Result<(), Box<dyn Error>>;
+    fn recv(&self, id: Uuid, position: usize) -> Result<Vec<&[u8]>, Box<dyn Error>>;
 }
 
 struct SendStream<'a, T: Connection> {
@@ -18,15 +28,18 @@ struct SendStream<'a, T: Connection> {
     // initialized as a constant but can be set
     hmac_key: [u8; 32],
     // (iteration for current hmac_key, current key value)
-    last_key: (u64, [u8; 32]),
+    last_key: (usize, [u8; 32]),
 
-    // `dh_keys` and `usernames` are ordered and correlated
-    dh_keys: Vec<[u8; 32]>,
+    dh_priv: [u8; 32],
+    // `dh_pubs` and `usernames` are ordered and correlated
+    dh_pubs: Vec<[u8; 32]>,
     usernames: Vec<String>,
 }
 
 impl<'a, T: Connection> SendStream<'a, T> {
     pub fn new(connection: &'a T) -> Self {
+        let (dh_priv, _) = generate_dh_keys();
+
         Self {
             connection,
 
@@ -35,11 +48,26 @@ impl<'a, T: Connection> SendStream<'a, T> {
             hmac_key: [0u8; 32],
             last_key: (0, [0u8; 32]),
 
-            dh_keys: vec![],
+            dh_priv,
+            dh_pubs: vec![],
             usernames: vec![],
         }
     }
 
+    /// bytes format
+    ///
+    /// - id = 16 bytes
+    /// - hmac_key = 32 bytes (encrypted)
+    /// - last_key (encrypted)
+    ///     - iteration
+    ///         - size = 2 bits
+    ///         - iteration = 0-8 bytes
+    ///     - value = 32 bytes
+    /// - recipients count
+    ///     - size = 2 bits
+    ///     - count = 0-8 bytes
+    /// - dh_pubs = 32 bytes * recipient count
+    /// - usernames = variable bytes * recipient count (encrypted)
     pub fn from_bytes(bytes: &[u8], connection: &'a T) -> Self {
         Self {
             connection,
@@ -49,40 +77,107 @@ impl<'a, T: Connection> SendStream<'a, T> {
             hmac_key: [0u8; 32],
             last_key: (0, [0u8; 32]),
 
-            dh_keys: vec![],
+            dh_priv: [0u8; 32],
+            dh_pubs: vec![],
             usernames: vec![],
         }
     }
 
-    pub fn push(&self, mode: EncryptMode) {}
+    pub fn to_bytes() -> Vec<u8> {
+        vec![]
+    }
+
+    pub fn send(&mut self, content: Vec<u8>, mode: SendMode) -> Result<(), Box<dyn Error>> {
+        // TODO: use the sender's fingerprint
+        let (fingerprint, _) = crate::generate_fingerprint();
+
+        let mode = match mode {
+            SendMode::Dh => {
+                self.last_key.0 = 0;
+                EncryptMode::Dh(self.dh_priv, &self.dh_pubs)
+            }
+            SendMode::Hmac => {
+                self.last_key.0 += 1;
+                EncryptMode::Hmac(self.hmac_key, self.last_key.1, self.last_key.0)
+            }
+            SendMode::Session => EncryptMode::Session(self.last_key.1),
+        };
+
+        let (encrypted_content, key) = crate::encrypt(fingerprint, content, mode)?;
+
+        self.last_key.1 = key;
+
+        self.connection.send(self.id, &encrypted_content)?;
+
+        Ok(())
+    }
 }
 
 struct RecvStream<'a, T: Connection> {
     connection: &'a T,
 
     id: Uuid,
-    position: u64,
+    position: usize,
 
-    // TODO: will need to handle OOO messages
-    // TODO: and only increment these values once
-    // TODO: we know we've seen every increment on
-    // TODO: the iterator up until that point by storing
-    // TODO: a "seen_iterators" so that we can build up
-    // TODO: [2, 3, 4, 5], while we wait for 1 to come in
-    // TODO: (once 1 comes in, we can set to 5).
+    // ?? will need to handle OOO messages
+    // ?? and only increment these values once
+    // ?? we know we've seen every increment on
+    // ?? the iterator up until that point by storing
+    // ?? a "seen_iterators" so that we can build up
+    // ?? [2, 3, 4, 5], while we wait for 1 to come in
+    // ?? (once 1 comes in, we can set to 5).
     hmac_key: [u8; 32],
-    last_key: (u64, [u8; 32]),
+    last_key: (usize, [u8; 32]),
+
+    dh_pub: [u8; 32],
+    dh_priv: [u8; 32],
+
+    verifying_key: [u8; 32],
 }
 
 impl<'a, T: Connection> RecvStream<'a, T> {
+    /// bytes format
+    ///
+    /// - id = 16 bytes
+    /// - position
+    ///     - size = 2 bits
+    ///     - position = 0-8 bytes
+    /// - hmac_key = 32 bytes (encrypted)
+    /// - last_key (encrypted)
+    ///     - iteration
+    ///         - size = 2 bits
+    ///         - iteration = 0-8 bytes
+    ///     - value = 32 bytes
     pub fn from_bytes(bytes: &[u8], connection: &'a T) {}
 
-    pub fn pull(&self) {}
+    pub fn to_bytes() -> Vec<u8> {
+        vec![]
+    }
+
+    pub fn recv(&mut self) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+        let encrypted_msgs = self.connection.recv(self.id, self.position)?;
+
+        let mut out: Vec<Vec<u8>> = vec![];
+
+        for encrypted_msg in encrypted_msgs {
+            let mode = match encrypted_msg[encrypted_msg.len() - 1] {
+                0 => DecryptMode::Session(self.last_key.1),
+                1 => DecryptMode::Hmac(self.hmac_key, self.last_key.1),
+                _ => DecryptMode::Dh([0u8; 32], self.dh_priv, self.dh_pub),
+            };
+
+            let (decrypted, key) = crate::decrypt(Some(&self.verifying_key), encrypted_msg, mode)?;
+
+            self.last_key = (0, key);
+
+            out.push(decrypted)
+        }
+
+        Ok(out)
+    }
 }
 
 pub struct Interaction<'a, T: Connection> {
-    connection: &'a T,
-
     id: Uuid,
 
     send_stream: SendStream<'a, T>,
@@ -96,8 +191,6 @@ pub struct Interaction<'a, T: Connection> {
 impl<'a, T: Connection> Interaction<'a, T> {
     pub fn new(connection: &'a T) -> Self {
         Self {
-            connection,
-
             id: Uuid::new_v4(),
 
             send_stream: SendStream::new(connection),
@@ -107,46 +200,27 @@ impl<'a, T: Connection> Interaction<'a, T> {
         }
     }
 
-    /// `Interaction` on-disk format
+    /// bytes format
     ///
     /// - receive streams count
     ///     - size = 2 bits
     ///     - count = 0-8 bytes
-    /// - receive stream * receive streams count
-    ///     - id = 16 bytes
-    ///     - position
-    ///         - size = 2 bits
-    ///         - position = 0-8 bytes
-    ///     - hmac_key = 32 bytes (encrypted)
-    ///     - last_key (encrypted)
-    ///         - iteration
-    ///             - size = 2 bits
-    ///             - iteration = 0-8 bytes
-    ///         - value = 32 bytes
-    ///
-    /// - send stream
-    ///     - id = 16 bytes
-    ///     - hmac_key = 32 bytes (encrypted)
-    ///     - last_key (encrypted)
-    ///         - iteration
-    ///             - size = 2 bits
-    ///             - iteration = 0-8 bytes
-    ///         - value = 32 bytes
-    ///     - recipients count
+    /// - send stream = ?
+    /// - receive streams
+    ///     - count
     ///         - size = 2 bits
     ///         - count = 0-8 bytes
-    ///     - dh_keys = 32 bytes * recipient count
-    ///     - usernames = variable bytes * recipient count (encrypted)
-    ///
+    ///     - streams = ? * receive streams count
     /// - recv_keys
+    ///     - count
+    ///         - size = 2 bits
+    ///         - count = 0-8 bytes
     ///     - start = 8 bytes
     ///     - end = 8 bytes
     ///     - pub key = 32 bytes
     ///     - priv key = 32 bytes (encrypted)
     pub fn from_bytes(bytes: &[u8], connection: &'a T) -> Self {
         Self {
-            connection,
-
             id: Uuid::new_v4(),
 
             send_stream: SendStream::new(connection),
@@ -160,14 +234,20 @@ impl<'a, T: Connection> Interaction<'a, T> {
         vec![]
     }
 
-    pub fn push(&self, mode: EncryptMode) {
-        self.send_stream.push(mode)
+    pub fn send(&mut self, content: Vec<u8>, mode: SendMode) -> Result<(), Box<dyn Error>> {
+        self.send_stream.send(content, mode)
     }
 
-    pub fn pull_all(&self) {
-        for recv_stream in &self.recv_streams {
-            recv_stream.pull()
+    pub fn recv_all(&mut self) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+        let mut out: Vec<Vec<u8>> = vec![];
+
+        // TODO: parallelize this
+        for recv_stream in &mut self.recv_streams {
+            let messages = recv_stream.recv()?;
+            out.extend(messages);
         }
+
+        Ok(out)
     }
 }
 
