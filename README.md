@@ -6,118 +6,229 @@
 [![docs.rs](https://docs.rs/rgp/badge.svg)](https://docs.rs/rgp/)
 [![dependency status](https://deps.rs/repo/github/seanwatters/rgp/status.svg)](https://deps.rs/repo/github/seanwatters/rgp)
 
-Relatively Good Privacy 
+Relatively Good Privacy
 
-## Usage
+## Ciphersuite
+
+- Blake2s256 for hashing
+- Ed25519 for signatures
+- X25519 for shared secrets
+- XChaCha20 for content keys
+- XChaCha20Poly1305 for content
+
+## Modes
+
+There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `Session`. All modes provide the ability to sign content and verify the sender. Deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
+
+### Diffie-Hellman
+
+`Dh` mode provides forward secrecy by generating a fresh/random content key for each message and encrypting a copy of that key for each recipient (similar to the way PGP session keys work).
 
 ```rust
-let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
+use rgp::{
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
+};
 
-let (sender_priv_key, sender_pub_key) = rgp::generate_exchange_keys();
-let (first_recipient_priv_key, first_recipient_pub_key) = rgp::generate_exchange_keys();
+let (fingerprint, verifier) = generate_fingerprint();
 
-let mut pub_keys = vec![first_recipient_pub_key];
+let (sender_priv_key, sender_pub_key) = generate_dh_keys();
+let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
 
-// 8mb
-let content = vec![0u8; 8_000_000];
+let mut pub_keys = vec![receiver_pub_key];
 
-// add another 20,000 recipients
-for _ in 0..20_000 {
-    let (_, pub_key) = rgp::generate_exchange_keys();
+// 5mb
+let content = vec![0u8; 5_000_000];
+
+// add another 10,000 recipients
+for _ in 0..10_000 {
+    let (_, pub_key) = generate_dh_keys();
     pub_keys.push(pub_key)
 }
 
-let mut encrypted_content = rgp::content::encrypt(
+// encrypt message for all recipients
+let (mut encrypted_content, content_key) = encrypt(
     fingerprint,
     content.clone(),
-    sender_priv_key,
-    &pub_keys,
+    Encrypt::Dh(sender_priv_key, &pub_keys),
 )
 .unwrap();
 
-// extract for first recipient
-rgp::content::extract_content_for_key_position(
-    &mut encrypted_content,
-    0
-)
-.unwrap();
+// extract encrypted content key at position 0
+if let Components::Dh(key) = extract_components_mut(0, &mut encrypted_content) {
 
-let decrypted_content = rgp::content::decrypt(
-    Some(&verifying_key),
-    sender_pub_key,
-    first_recipient_priv_key,
-    &encrypted_content,
-)
-.unwrap();
-
-assert_eq!(decrypted_content, content);
+    // decrypt message with encrypted content key
+    let (decrypted_content, decrypted_content_key) = decrypt(
+        Some(&verifier),
+        &encrypted_content,
+        Decrypt::Dh(key, sender_pub_key, receiver_priv_key),
+    )
+    .unwrap();
+    
+    assert_eq!(decrypted_content, content);
+    assert_eq!(decrypted_content_key, content_key);
+};
 ```
 
-### Disable Multi-threading
-
-The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](https://crates.io/crates/rayon) crate. It only impacts the `content::encrypt` function, but can be disabled by setting `default-features` to `false`.
-
-```toml
-# Cargo.toml
-
-[dependencies]
-rgp = { version = "x.x.x", default-features = false }
-```
-
-## Process
+#### Steps
 
 1. Generate one-time components
     - **nonce**
     - **content key**
 2. Sign plaintext to generate **content signature**
-3. Encrypt plaintext and **content signature** with **one-time content key**
-4. Encrypt **one-time content key** for all recipients
+3. Encrypt plaintext and **content signature** with **content key**
+4. Encrypt **content key** for all recipients
     - Generate **shared secret** with **recipient public key** and **sender private key**
-    - Encrypt **one-time content key** with **shared secret**
+    - Encrypt **content key** with **shared secret**
 
-## Ciphersuite
+#### Format
 
-- Ed25519 for **signatures**
-- XChaCha20Poly1305 for content
-- X25519 for Diffie-Hellman **shared secret** generation
-- XChaCha20 for **one-time content key** encryption
-
-## Performance
-
-For the 8mb example with 20,000 recipients, on my M1 MacBook Pro
-
-| Operation               | Time      |
-| ----------------------- | --------- |
-| encrypt (multi-thread)  | 96.606 ms |
-| encrypt (single-thread) | 758.99 ms |
-| extract                 | 322.95 µs |
-| decrypt                 | 44.399 ms |
-
-Doing the equivalent operation for just 1 recipient on 8mb is
-
-| Operation               | Time      |
-| ----------------------- | --------- |
-| encrypt (multi-thread)  | 60.714 ms |
-| encrypt (single-thread) | 60.889 ms |
-
-When benchmarked in isolation, the signing operation (internal to the `encrypt` function) and verifying operation (internal to the `decrypt` function), take 28.469 ms and 14.209 ms, respectively.
-
-To check performance on your machine, run `cargo bench` (or `cargo bench --no-default-features` to disable multi-threading). You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml) under job/Benchmark or job/Benchmark (single threaded).
-
-**NOTE:** in multi-threaded mode the content signing/encryption logic is done in a separate thread from the per-recipient **content key** encryption, and the **content key** encryption work is done in a Rayon `par_chunks_mut` for loop. There is likely an opportunity for further parallelization in the content encryption and signing step.
-
-## Encrypted Format
-
-- **nonce** = 24 bytes
-- keys count (1-9 bytes)
-    - int size = 2 bits (0 for u8+63 | 1 for u16+63 | 2 for u32+63 | 3 for u64+63)
+- nonce = 24 bytes
+- keys count
+    - int size = 2 bits
     - count
         - numbers 0-63 = 6 bits
         - numbers >63 = 1-8 bytes (big endian int)
-- encrypted keys = pub_keys.len() * 32 bytes
+- encrypted copies of content key = pub_keys.len() * 32 bytes
 - encrypted content = content.len()
-- **signature** = 64 bytes (encrypted along with the content to preserve deniability)
+- signature = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
+- mode = 1 byte (set to 2 for `Dh`)
+
+### HMAC
+
+`Hmac` mode provides backward secrecy, and can enable forward secrecy when both the HMAC key and value are kept secret, and only the content key is compromised.
+
+```rust
+use rgp::{
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
+};
+
+let (fingerprint, verifier) = generate_fingerprint();
+
+// use actually secret values
+let hmac_key = [0u8; 32];
+let hmac_value = [1u8; 32];
+
+// 5mb
+let content = vec![0u8; 5_000_000];
+
+// encrypt message keyed hash result
+let (mut encrypted_content, content_key) = encrypt(
+    fingerprint,
+    content.clone(),
+    Encrypt::Hmac(hmac_key, hmac_value, 42),
+)
+.unwrap();
+
+// extract iterator
+if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content) {
+    assert_eq!(itr, 42);
+
+    // decrypt message with keyed hash result mode
+    let (decrypted_content, hashed_content_key) = decrypt(
+        Some(&verifier),
+        &encrypted_content,
+        rgp::Decrypt::Hmac(hmac_key, hmac_value),
+    )
+    .unwrap();
+
+    assert_eq!(decrypted_content, content);
+    assert_eq!(hashed_content_key, content_key);
+};
+
+```
+
+#### Steps
+
+1. Generate **nonce**
+2. Hmac the content key
+3. Sign plaintext to generate **content signature**
+4. Encrypt plaintext and **content signature** with the hashed **content key**
+
+#### Format
+
+- nonce = 24 bytes
+- iteration
+    - int size = 2 bits
+    - iteration
+        - numbers 0-63 = 6 bits
+        - numbers >63 = 1-8 bytes (big endian int)
+- encrypted content = content.len()
+- signature = 64 bytes (encrypted along with the content to preserve deniability)
+- Poly1305 MAC = 16 bytes
+- mode = 1 byte (set to 1 for `Hmac`)
+
+### Session
+
+`Session` provides no forward or backward secrecy, and uses the provided key "as is" without any modification.
+
+```rust
+use rgp::{
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
+};
+
+let (fingerprint, verifier) = generate_fingerprint();
+
+// use an actually secret key
+let session_key = [0u8; 32];
+
+// 5mb
+let content = vec![0u8; 5_000_000];
+
+// encrypt message with a session key
+let (mut encrypted_content, _) = encrypt(
+    fingerprint,
+    content.clone(),
+    Encrypt::Session(session_key),
+)
+.unwrap();
+
+// session doesn't need additional components but does need to be processed
+if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
+
+    // decrypt message with session key
+    let (decrypted_content, _) = decrypt(
+        Some(&verifier),
+        &encrypted_content,
+        Decrypt::Session(session_key),
+    )
+    .unwrap();
+    
+    assert_eq!(decrypted_content, content);
+}
+```
+
+#### Steps
+
+1. Generate **nonce**
+2. Sign plaintext to generate **content signature**
+3. Encrypt plaintext and **content signature** with the provided **content key**, as is
+
+#### Format
+
+- nonce = 24 bytes
+- encrypted content = content.len()
+- signature = 64 bytes (encrypted along with the content to preserve deniability)
+- Poly1305 MAC = 16 bytes
+- mode = 1 byte (set to 0 for `Hmac`)
+
+### Disable Multi-threading
+
+The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](https://crates.io/crates/rayon) crate. Currently it only impacts the `encrypt` function when using `Dh` mode, but can be disabled by setting `default-features` to `false`.
+
+```toml
+[dependencies]
+rgp = { version = "x.x.x", default-features = false }
+```
+
+## Performance
+
+To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml).
+
+All benchmarks for multi-recipient `Dh` payloads are for **10,000** recipients, and all benchmarks for sign+encrypt/decrypt+verify are using **5mb** of data.
 
 ## License
 
@@ -126,3 +237,4 @@ To check performance on your machine, run `cargo bench` (or `cargo bench --no-de
 ## Security
 
 THIS CODE HAS NOT BEEN AUDITED OR REVIEWED. USE AT YOUR OWN RISK.
+

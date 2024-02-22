@@ -1,133 +1,217 @@
 /*
 Copyright (c) 2024 sean watters
 
-Licensed under the MIT license <LICENSE-MIT or https://opensource.org/licenses/MIT>.
+Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
-fn signature_generate_fingerprint_benchmark(c: &mut Criterion) {
-    c.bench_function("signature_generate_fingerprint", |b| {
+use rgp::{
+    decrypt, encrypt, extract_components, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt,
+};
+
+fn session_encrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = generate_fingerprint();
+    let (key, _) = generate_dh_keys();
+
+    let content = vec![0u8; 5_000_000];
+
+    c.bench_function("session_encrypt", |b| {
         b.iter(|| {
-            rgp::signature::generate_fingerprint();
+            encrypt(fingerprint, content.clone(), Encrypt::Session(key)).unwrap();
         })
     });
 }
 
-fn signature_sign_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = rgp::signature::generate_fingerprint();
-    let content = [0u8; 8_000_000];
+fn hmac_encrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = generate_fingerprint();
+    let (hmac_key, key) = generate_dh_keys();
 
-    c.bench_function("signature_sign", |b| {
+    let content = vec![0u8; 5_000_000];
+
+    c.bench_function("hmac_encrypt", |b| {
         b.iter(|| {
-            rgp::signature::sign(&fingerprint, &content);
+            encrypt(
+                fingerprint,
+                content.clone(),
+                Encrypt::Hmac(hmac_key, key, 0),
+            )
+            .unwrap();
         })
     });
 }
 
-fn signature_verify_benchmark(c: &mut Criterion) {
-    let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
-    let content = [0u8; 8_000_000];
+fn dh_encrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = generate_fingerprint();
 
-    let signature = rgp::signature::sign(&fingerprint, &content);
+    let (sender_priv_key, _) = generate_dh_keys();
+    let (_, receiver_pub_key) = generate_dh_keys();
 
-    c.bench_function("signature_verify", |b| {
-        b.iter(|| {
-            rgp::signature::verify(&signature, &verifying_key, &content).unwrap();
-        })
-    });
-}
-
-fn generate_exchange_keys_benchmark(c: &mut Criterion) {
-    c.bench_function("generate_exchange_keys", |b| {
-        b.iter(|| {
-            rgp::generate_exchange_keys();
-        })
-    });
-}
-
-fn content_encrypt_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = rgp::signature::generate_fingerprint();
-
-    let (sender_priv_key, _) = rgp::generate_exchange_keys();
-    let (_, receiver_pub_key) = rgp::generate_exchange_keys();
-
-    let content = vec![0u8; 8_000_000];
+    let content = vec![0u8; 5_000_000];
     let pub_keys = vec![receiver_pub_key];
 
-    c.bench_function("content_encrypt", |b| {
+    c.bench_function("dh_encrypt", |b| {
         b.iter(|| {
-            rgp::content::encrypt(fingerprint, content.clone(), sender_priv_key, &pub_keys)
-                .unwrap();
+            encrypt(
+                fingerprint,
+                content.clone(),
+                Encrypt::Dh(sender_priv_key, &pub_keys),
+            )
+            .unwrap();
         })
     });
 }
 
-fn content_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = rgp::signature::generate_fingerprint();
-    let (sender_priv_key, _) = rgp::generate_exchange_keys();
+fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = generate_fingerprint();
+    let (sender_priv_key, _) = generate_dh_keys();
 
-    let content = vec![0u8; 8_000_000];
+    let content = vec![0u8; 5_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..20_000 {
-        let (_, pub_key) = rgp::generate_exchange_keys();
+    for _ in 0..10_000 {
+        let (_, pub_key) = generate_dh_keys();
         pub_keys.push(pub_key)
     }
 
-    c.bench_function("content_encrypt_multi_recipient", |b| {
+    c.bench_function("dh_encrypt_multi_recipient", |b| {
         b.iter(|| {
-            rgp::content::encrypt(fingerprint, content.clone(), sender_priv_key, &pub_keys)
-                .unwrap();
+            encrypt(
+                fingerprint,
+                content.clone(),
+                Encrypt::Dh(sender_priv_key, &pub_keys),
+            )
+            .unwrap();
         })
     });
 }
 
-fn content_extract_content_for_key_position_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = rgp::signature::generate_fingerprint();
-    let (sender_priv_key, _) = rgp::generate_exchange_keys();
+fn extract_components_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = generate_fingerprint();
+    let (sender_priv_key, _) = generate_dh_keys();
 
-    let content = vec![0u8; 8_000_000];
+    let content = vec![0u8; 5_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..20_000 {
-        let (_, pub_key) = rgp::generate_exchange_keys();
+    for _ in 0..10_000 {
+        let (_, pub_key) = generate_dh_keys();
         pub_keys.push(pub_key)
     }
 
-    let encrypted_content =
-        rgp::content::encrypt(fingerprint, content, sender_priv_key, &pub_keys).unwrap();
+    let (encrypted_content, _) = encrypt(
+        fingerprint,
+        content,
+        Encrypt::Dh(sender_priv_key, &pub_keys),
+    )
+    .unwrap();
 
-    c.bench_function("content_extract_content_for_key_position", |b| {
+    c.bench_function("extract_components", |b| {
         b.iter(|| {
-            rgp::content::extract_content_for_key_position(&mut encrypted_content.clone(), 0)
-                .unwrap();
+            extract_components(0, encrypted_content.clone());
         })
     });
 }
 
-fn decrypt_content_benchmark(c: &mut Criterion) {
-    let (fingerprint, verifying_key) = rgp::signature::generate_fingerprint();
-    let (sender_priv_key, sender_pub_key) = rgp::generate_exchange_keys();
+fn extract_components_mut_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = generate_fingerprint();
+    let (sender_priv_key, _) = generate_dh_keys();
 
-    let content = vec![0u8; 8_000_000];
-    let (receiver_priv_key, receiver_pub_key) = rgp::generate_exchange_keys();
+    let content = vec![0u8; 5_000_000];
+    let mut pub_keys = vec![];
 
-    let pub_keys = vec![receiver_pub_key];
+    for _ in 0..10_000 {
+        let (_, pub_key) = generate_dh_keys();
+        pub_keys.push(pub_key)
+    }
 
-    let mut encrypted_content =
-        rgp::content::encrypt(fingerprint, content, sender_priv_key, &pub_keys).unwrap();
+    let (encrypted_content, _) = encrypt(
+        fingerprint,
+        content,
+        Encrypt::Dh(sender_priv_key, &pub_keys),
+    )
+    .unwrap();
 
-    rgp::content::extract_content_for_key_position(&mut encrypted_content, 0).unwrap();
-
-    c.bench_function("decrypt_content", |b| {
+    c.bench_function("extract_components_mut", |b| {
         b.iter(|| {
-            rgp::content::decrypt(
+            extract_components_mut(0, &mut encrypted_content.clone());
+        })
+    });
+}
+
+fn session_decrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, verifying_key) = generate_fingerprint();
+    let (key, _) = generate_dh_keys();
+
+    let content = vec![0u8; 5_000_000];
+
+    let (mut encrypted_content, _) = encrypt(fingerprint, content, Encrypt::Session(key)).unwrap();
+
+    extract_components_mut(0, &mut encrypted_content);
+
+    c.bench_function("session_decrypt", |b| {
+        b.iter(|| {
+            decrypt(
                 Some(&verifying_key),
-                sender_pub_key,
-                receiver_priv_key,
                 &encrypted_content,
+                Decrypt::Session(key),
+            )
+            .unwrap();
+        })
+    });
+}
+
+fn hmac_decrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, verifying_key) = generate_fingerprint();
+    let (hmac_key, key) = generate_dh_keys();
+
+    let content = vec![0u8; 5_000_000];
+
+    let (mut encrypted_content, _) =
+        encrypt(fingerprint, content, Encrypt::Hmac(hmac_key, key, 0)).unwrap();
+
+    extract_components_mut(0, &mut encrypted_content);
+
+    c.bench_function("hmac_decrypt", |b| {
+        b.iter(|| {
+            decrypt(
+                Some(&verifying_key),
+                &encrypted_content,
+                Decrypt::Hmac(hmac_key, key),
+            )
+            .unwrap();
+        })
+    });
+}
+
+fn dh_decrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, verifying_key) = generate_fingerprint();
+    let (sender_priv_key, sender_pub_key) = generate_dh_keys();
+
+    let content = vec![0u8; 5_000_000];
+    let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
+
+    let pub_keys = vec![receiver_pub_key];
+
+    let (mut encrypted_content, _) = encrypt(
+        fingerprint,
+        content,
+        Encrypt::Dh(sender_priv_key, &pub_keys),
+    )
+    .unwrap();
+
+    let content_key = match extract_components_mut(0, &mut encrypted_content) {
+        Components::Dh(key) => key,
+        _ => unreachable!(),
+    };
+
+    c.bench_function("dh_decrypt", |b| {
+        b.iter(|| {
+            decrypt(
+                Some(&verifying_key),
+                &encrypted_content,
+                Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
             )
             .unwrap();
         })
@@ -136,14 +220,15 @@ fn decrypt_content_benchmark(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    signature_generate_fingerprint_benchmark,
-    signature_sign_benchmark,
-    signature_verify_benchmark,
-    generate_exchange_keys_benchmark,
-    content_encrypt_benchmark,
-    content_encrypt_multi_recipient_benchmark,
-    content_extract_content_for_key_position_benchmark,
-    decrypt_content_benchmark,
+    session_encrypt_benchmark,
+    hmac_encrypt_benchmark,
+    dh_encrypt_benchmark,
+    dh_encrypt_multi_recipient_benchmark,
+    extract_components_benchmark,
+    extract_components_mut_benchmark,
+    session_decrypt_benchmark,
+    hmac_decrypt_benchmark,
+    dh_decrypt_benchmark,
 );
 
 criterion_main!(benches);

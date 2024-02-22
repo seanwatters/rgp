@@ -1,6 +1,6 @@
 # Copyright (c) 2024 sean watters
 #
-# Licensed under the MIT license <LICENSE-MIT or https://opensource.org/license/MIT>.
+# Licensed under the MIT license <LICENSE or https://opensource.org/license/MIT>.
 # This file may not be copied, modified, or distributed except according to those terms.
 
 [package]
@@ -9,14 +9,15 @@ description = "Enabling efficient E2EE for large-audience pub/sub."
 categories = ["cryptography"]
 edition = "2021"
 homepage = "https://github.com/seanwatters/rgp"
-keywords = ["e2ee", "encryption"]
+keywords = ["e2ee", "encryption", "crypto", "security"]
 license = "MIT"
 name = "rgp"
 readme = "README.md"
 repository = "https://github.com/seanwatters/rgp"
-version = "0.1.13"
+version = "0.2.0"
 
 [dependencies]
+blake2 = "0.10.6"
 chacha20 = "0.9.1"
 chacha20poly1305 = "0.10.1"
 ed25519-dalek = { version = "2.0.0", features = ["rand_core"] }
