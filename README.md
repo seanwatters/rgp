@@ -8,14 +8,6 @@
 
 Relatively Good Privacy
 
-## Ciphersuite
-
-- Blake2s256 for hashing
-- Ed25519 for signatures
-- X25519 for shared secrets
-- XChaCha20 for content keys
-- XChaCha20Poly1305 for content
-
 ## Modes
 
 There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `Session`. All modes provide the ability to sign content and verify the sender. Deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
@@ -214,6 +206,14 @@ if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
 - signature = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
 - mode = 1 byte (set to 0 for `Hmac`)
+
+## Ciphersuite
+
+- Blake2s256 for hashing
+- Ed25519 for signatures
+- X25519 for shared secrets
+- XChaCha20 for content keys
+- XChaCha20Poly1305 for content
 
 ### Disable Multi-threading
 
