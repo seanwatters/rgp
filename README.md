@@ -54,7 +54,7 @@ let (mut encrypted_content, content_key) = encrypt(
 )
 .unwrap();
 
-// extract components for position 0
+// extract encrypted content key at position 0
 if let Components::Dh(key) = extract_components_mut(0, &mut encrypted_content) {
 
     // decrypt message with encrypted content key
@@ -120,6 +120,7 @@ let (mut encrypted_content, content_key) = encrypt(
 )
 .unwrap();
 
+// extract iterator
 if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content) {
     assert_eq!(itr, 42);
 
@@ -180,6 +181,7 @@ let (mut encrypted_content, _) = encrypt(
 )
 .unwrap();
 
+// session doesn't need additional components but does need to be processed
 if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
 
     // decrypt message with session key
