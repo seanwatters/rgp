@@ -1,13 +1,10 @@
 use std::error::Error;
 use uuid::Uuid;
 
-use crate::{generate_dh_keys, usize_to_bytes, DecryptMode, EncryptMode};
+use crate::{decrypt, encrypt, extract_mode_mut, generate_dh_keys, DecryptMode, EncryptMode, Mode};
 
 pub enum SendMode {
     Dh,
-    // ?? HMAC interaction messages are going to need to add
-    // ?? the iterator value to their payload so they'll be have
-    // ?? an additional 1-9 bytes.
     Hmac,
     Session,
 }
@@ -16,8 +13,8 @@ pub enum SendMode {
 pub trait Connection {
     fn create_stream(&self) -> Result<Uuid, Box<dyn Error>>;
 
-    fn send(&self, id: Uuid, encrypted: &[u8]) -> Result<(), Box<dyn Error>>;
-    fn recv(&self, id: Uuid, position: usize) -> Result<Vec<&[u8]>, Box<dyn Error>>;
+    fn send(&self, id: Uuid, encrypted: &[u8]) -> Result<Uuid, Box<dyn Error>>;
+    fn recv(&self, id: Uuid, position: usize) -> Result<Vec<Vec<u8>>, Box<dyn Error>>;
 }
 
 struct SendStream<'a, T: Connection> {
@@ -91,20 +88,18 @@ impl<'a, T: Connection> SendStream<'a, T> {
         // TODO: use the sender's fingerprint
         let (fingerprint, _) = crate::generate_fingerprint();
 
-        let mode = match mode {
-            SendMode::Dh => {
-                self.last_key.0 = 0;
-                EncryptMode::Dh(self.dh_priv, &self.dh_pubs)
-            }
-            SendMode::Hmac => {
-                self.last_key.0 += 1;
-                EncryptMode::Hmac(self.hmac_key, self.last_key.1, self.last_key.0)
-            }
-            SendMode::Session => EncryptMode::Session(self.last_key.1),
+        let (mode, new_itr) = match mode {
+            SendMode::Dh => (EncryptMode::Dh(self.dh_priv, &self.dh_pubs), 0),
+            SendMode::Hmac => (
+                EncryptMode::Hmac(self.hmac_key, self.last_key.1, self.last_key.0),
+                self.last_key.0 + 1,
+            ),
+            SendMode::Session => (EncryptMode::Session(self.last_key.1), self.last_key.0),
         };
 
-        let (encrypted_content, key) = crate::encrypt(fingerprint, content, mode)?;
+        let (encrypted_content, key) = encrypt(fingerprint, content, mode)?;
 
+        self.last_key.0 = new_itr;
         self.last_key.1 = key;
 
         self.connection.send(self.id, &encrypted_content)?;
@@ -155,18 +150,32 @@ impl<'a, T: Connection> RecvStream<'a, T> {
     }
 
     pub fn recv(&mut self) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
-        let encrypted_msgs = self.connection.recv(self.id, self.position)?;
+        let mut encrypted_msgs = self.connection.recv(self.id, self.position)?;
 
         let mut out: Vec<Vec<u8>> = vec![];
 
-        for encrypted_msg in encrypted_msgs {
-            let mode = match encrypted_msg[encrypted_msg.len() - 1] {
-                0 => DecryptMode::Session(self.last_key.1),
-                1 => DecryptMode::Hmac(self.hmac_key, self.last_key.1),
-                _ => DecryptMode::Dh([0u8; 32], self.dh_priv, self.dh_pub),
-            };
+        for encrypted_msg in &mut encrypted_msgs {
+            let (decrypted, key) = match extract_mode_mut(self.position, encrypted_msg) {
+                Mode::Dh(content_key) => decrypt(
+                    Some(&self.verifying_key),
+                    encrypted_msg,
+                    DecryptMode::Dh(content_key, self.dh_priv, self.dh_pub),
+                )?,
+                Mode::Hmac(itr) => {
+                    // TODO: do stuff with itr
 
-            let (decrypted, key) = crate::decrypt(Some(&self.verifying_key), encrypted_msg, mode)?;
+                    decrypt(
+                        Some(&self.verifying_key),
+                        encrypted_msg,
+                        DecryptMode::Hmac(self.hmac_key, self.last_key.1),
+                    )?
+                }
+                Mode::Session => decrypt(
+                    Some(&self.verifying_key),
+                    encrypted_msg,
+                    DecryptMode::Session(self.last_key.1),
+                )?,
+            };
 
             self.last_key = (0, key);
 
