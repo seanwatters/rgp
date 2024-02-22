@@ -71,7 +71,7 @@ fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
     let content = vec![0u8; 5_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..20_000 {
+    for _ in 0..10_000 {
         let (_, pub_key) = generate_dh_keys();
         pub_keys.push(pub_key)
     }
@@ -95,7 +95,7 @@ fn extract_components_benchmark(c: &mut Criterion) {
     let content = vec![0u8; 5_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..20_000 {
+    for _ in 0..10_000 {
         let (_, pub_key) = generate_dh_keys();
         pub_keys.push(pub_key)
     }
@@ -121,7 +121,7 @@ fn extract_components_mut_benchmark(c: &mut Criterion) {
     let content = vec![0u8; 5_000_000];
     let mut pub_keys = vec![];
 
-    for _ in 0..20_000 {
+    for _ in 0..10_000 {
         let (_, pub_key) = generate_dh_keys();
         pub_keys.push(pub_key)
     }

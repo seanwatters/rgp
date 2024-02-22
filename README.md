@@ -40,8 +40,8 @@ let mut pub_keys = vec![receiver_pub_key];
 // 5mb
 let content = vec![0u8; 5_000_000];
 
-// add another 20,000 recipients
-for _ in 0..20_000 {
+// add another 10,000 recipients
+for _ in 0..10_000 {
     let (_, pub_key) = generate_dh_keys();
     pub_keys.push(pub_key)
 }
@@ -228,7 +228,7 @@ rgp = { version = "x.x.x", default-features = false }
 
 To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml).
 
-All benchmarks for multi-recipient `Dh` payloads are for **20,000** recipients, and all benchmarks for sign + encrypt/decrypt + verify are using **5mb** of data.
+All benchmarks for multi-recipient `Dh` payloads are for **10,000** recipients, and all benchmarks for sign+encrypt/decrypt+verify are using **5mb** of data.
 
 ## License
 
