@@ -60,18 +60,18 @@ fn session_encrypt_benchmark(c: &mut Criterion) {
     });
 }
 
-fn hash_encrypt_benchmark(c: &mut Criterion) {
+fn hmac_encrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
-    let (hash_key, key) = rgp::generate_dh_keys();
+    let (hmac_key, key) = rgp::generate_dh_keys();
 
     let content = vec![0u8; 8_000_000];
 
-    c.bench_function("hash_encrypt", |b| {
+    c.bench_function("hmac_encrypt", |b| {
         b.iter(|| {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::Encrypt::Hmac(hash_key, key, 0),
+                rgp::Encrypt::Hmac(hmac_key, key, 0),
             )
             .unwrap();
         })
@@ -198,23 +198,23 @@ fn session_decrypt_benchmark(c: &mut Criterion) {
     });
 }
 
-fn hash_decrypt_benchmark(c: &mut Criterion) {
+fn hmac_decrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = rgp::generate_fingerprint();
-    let (hash_key, key) = rgp::generate_dh_keys();
+    let (hmac_key, key) = rgp::generate_dh_keys();
 
     let content = vec![0u8; 8_000_000];
 
     let (mut encrypted_content, _) =
-        rgp::encrypt(fingerprint, content, rgp::Encrypt::Hmac(hash_key, key, 0)).unwrap();
+        rgp::encrypt(fingerprint, content, rgp::Encrypt::Hmac(hmac_key, key, 0)).unwrap();
 
     rgp::extract_components_mut(0, &mut encrypted_content);
 
-    c.bench_function("hash_decrypt", |b| {
+    c.bench_function("hmac_decrypt", |b| {
         b.iter(|| {
             rgp::decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                rgp::Decrypt::Hmac(hash_key, key),
+                rgp::Decrypt::Hmac(hmac_key, key),
             )
             .unwrap();
         })
@@ -261,13 +261,13 @@ criterion_group!(
     verify_benchmark,
     generate_dh_keys_benchmark,
     session_encrypt_benchmark,
-    hash_encrypt_benchmark,
+    hmac_encrypt_benchmark,
     dh_encrypt_benchmark,
     dh_encrypt_multi_recipient_benchmark,
     extract_components_benchmark,
     extract_components_mut_benchmark,
     session_decrypt_benchmark,
-    hash_decrypt_benchmark,
+    hmac_decrypt_benchmark,
     dh_decrypt_benchmark,
 );
 

@@ -26,9 +26,8 @@ There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `S
 
 ```rust
 use rgp::{
-    Components, decrypt, Decrypt, encrypt, Encrypt,
-    extract_components_mut, generate_dh_keys,
-    generate_fingerprint
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
 };
 
 let (fingerprint, verifying_key) = generate_fingerprint();
@@ -55,7 +54,7 @@ let (mut encrypted_content, content_key) = encrypt(
 )
 .unwrap();
 
-// extract components for position 0
+// extract encrypted content key at position 0
 if let Components::Dh(key) = extract_components_mut(0, &mut encrypted_content) {
 
     // decrypt message with encrypted content key
@@ -102,15 +101,14 @@ if let Components::Dh(key) = extract_components_mut(0, &mut encrypted_content) {
 
 ```rust
 use rgp::{
-    Components, decrypt, Decrypt, encrypt, Encrypt,
-    extract_components_mut, generate_dh_keys,
-    generate_fingerprint
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
 };
 
 let (fingerprint, verifying_key) = generate_fingerprint();
 
-let hash_key = [0u8; 32]; // use an actual key
-let hash_value = [1u8; 32]; // use an actual key
+let hmac_key = [0u8; 32]; // use an actual key
+let hmac_value = [1u8; 32]; // use an actual key
 
 let content = vec![0u8; 8_000_000];
 
@@ -118,10 +116,11 @@ let content = vec![0u8; 8_000_000];
 let (mut encrypted_content, content_key) = encrypt(
     fingerprint,
     content.clone(),
-    Encrypt::Hmac(hash_key, hash_value, 42),
+    Encrypt::Hmac(hmac_key, hmac_value, 42),
 )
 .unwrap();
 
+// extract iterator
 if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content) {
     assert_eq!(itr, 42);
 
@@ -129,7 +128,7 @@ if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content)
     let (decrypted_content, hashed_content_key) = decrypt(
         Some(&verifying_key),
         &encrypted_content,
-        rgp::Decrypt::Hmac(hash_key, hash_value),
+        rgp::Decrypt::Hmac(hmac_key, hmac_value),
     )
     .unwrap();
 
@@ -165,9 +164,8 @@ if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content)
 
 ```rust
 use rgp::{
-    Components, decrypt, Decrypt, encrypt, Encrypt,
-    extract_components_mut, generate_dh_keys,
-    generate_fingerprint
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
 };
 
 let (fingerprint, verifying_key) = generate_fingerprint();
@@ -183,6 +181,7 @@ let (mut encrypted_content, _) = encrypt(
 )
 .unwrap();
 
+// session doesn't need additional components but does need to be processed
 if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
 
     // decrypt message with session key
