@@ -107,8 +107,8 @@ use rgp::{
 
 let (fingerprint, verifying_key) = generate_fingerprint();
 
-let hash_key = [0u8; 32]; // use an actual key
-let hash_value = [1u8; 32]; // use an actual key
+let hmac_key = [0u8; 32]; // use an actual key
+let hmac_value = [1u8; 32]; // use an actual key
 
 let content = vec![0u8; 8_000_000];
 
@@ -116,7 +116,7 @@ let content = vec![0u8; 8_000_000];
 let (mut encrypted_content, content_key) = encrypt(
     fingerprint,
     content.clone(),
-    Encrypt::Hmac(hash_key, hash_value, 42),
+    Encrypt::Hmac(hmac_key, hmac_value, 42),
 )
 .unwrap();
 
@@ -128,7 +128,7 @@ if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content)
     let (decrypted_content, hashed_content_key) = decrypt(
         Some(&verifying_key),
         &encrypted_content,
-        rgp::Decrypt::Hmac(hash_key, hash_value),
+        rgp::Decrypt::Hmac(hmac_key, hmac_value),
     )
     .unwrap();
 
