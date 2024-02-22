@@ -26,9 +26,8 @@ There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `S
 
 ```rust
 use rgp::{
-    Components, decrypt, Decrypt, encrypt, Encrypt,
-    extract_components_mut, generate_dh_keys,
-    generate_fingerprint
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
 };
 
 let (fingerprint, verifying_key) = generate_fingerprint();
@@ -102,9 +101,8 @@ if let Components::Dh(key) = extract_components_mut(0, &mut encrypted_content) {
 
 ```rust
 use rgp::{
-    Components, decrypt, Decrypt, encrypt, Encrypt,
-    extract_components_mut, generate_dh_keys,
-    generate_fingerprint
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
 };
 
 let (fingerprint, verifying_key) = generate_fingerprint();
@@ -165,9 +163,8 @@ if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content)
 
 ```rust
 use rgp::{
-    Components, decrypt, Decrypt, encrypt, Encrypt,
-    extract_components_mut, generate_dh_keys,
-    generate_fingerprint
+    decrypt, encrypt, extract_components_mut, generate_dh_keys,
+    generate_fingerprint, Components, Decrypt, Encrypt
 };
 
 let (fingerprint, verifying_key) = generate_fingerprint();
