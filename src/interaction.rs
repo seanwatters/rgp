@@ -1,9 +1,11 @@
 use std::error::Error;
 use uuid::Uuid;
 
-use crate::{decrypt, encrypt, extract_mode_mut, generate_dh_keys, DecryptMode, EncryptMode, Mode};
+use crate::{
+    decrypt, encrypt, extract_components_mut, generate_dh_keys, Components, Decrypt, Encrypt,
+};
 
-pub enum SendMode {
+pub enum Mode {
     Dh,
     Hmac,
     Session,
@@ -84,17 +86,17 @@ impl<'a, T: Connection> SendStream<'a, T> {
         vec![]
     }
 
-    pub fn send(&mut self, content: Vec<u8>, mode: SendMode) -> Result<(), Box<dyn Error>> {
+    pub fn send(&mut self, content: Vec<u8>, mode: Mode) -> Result<(), Box<dyn Error>> {
         // TODO: use the sender's fingerprint
         let (fingerprint, _) = crate::generate_fingerprint();
 
         let (mode, new_itr) = match mode {
-            SendMode::Dh => (EncryptMode::Dh(self.dh_priv, &self.dh_pubs), 0),
-            SendMode::Hmac => (
-                EncryptMode::Hmac(self.hmac_key, self.last_key.1, self.last_key.0),
+            Mode::Dh => (Encrypt::Dh(self.dh_priv, &self.dh_pubs), 0),
+            Mode::Hmac => (
+                Encrypt::Hmac(self.hmac_key, self.last_key.1, self.last_key.0),
                 self.last_key.0 + 1,
             ),
-            SendMode::Session => (EncryptMode::Session(self.last_key.1), self.last_key.0),
+            Mode::Session => (Encrypt::Session(self.last_key.1), self.last_key.0),
         };
 
         let (encrypted_content, key) = encrypt(fingerprint, content, mode)?;
@@ -155,25 +157,25 @@ impl<'a, T: Connection> RecvStream<'a, T> {
         let mut out: Vec<Vec<u8>> = vec![];
 
         for encrypted_msg in &mut encrypted_msgs {
-            let (decrypted, key) = match extract_mode_mut(self.position, encrypted_msg) {
-                Mode::Dh(content_key) => decrypt(
+            let (decrypted, key) = match extract_components_mut(self.position, encrypted_msg) {
+                Components::Dh(content_key) => decrypt(
                     Some(&self.verifying_key),
                     encrypted_msg,
-                    DecryptMode::Dh(content_key, self.dh_priv, self.dh_pub),
+                    Decrypt::Dh(content_key, self.dh_priv, self.dh_pub),
                 )?,
-                Mode::Hmac(itr) => {
+                Components::Hmac(itr) => {
                     // TODO: do stuff with itr
 
                     decrypt(
                         Some(&self.verifying_key),
                         encrypted_msg,
-                        DecryptMode::Hmac(self.hmac_key, self.last_key.1),
+                        Decrypt::Hmac(self.hmac_key, self.last_key.1),
                     )?
                 }
-                Mode::Session => decrypt(
+                Components::Session => decrypt(
                     Some(&self.verifying_key),
                     encrypted_msg,
-                    DecryptMode::Session(self.last_key.1),
+                    Decrypt::Session(self.last_key.1),
                 )?,
             };
 
@@ -243,7 +245,7 @@ impl<'a, T: Connection> Interaction<'a, T> {
         vec![]
     }
 
-    pub fn send(&mut self, content: Vec<u8>, mode: SendMode) -> Result<(), Box<dyn Error>> {
+    pub fn send(&mut self, content: Vec<u8>, mode: Mode) -> Result<(), Box<dyn Error>> {
         self.send_stream.send(content, mode)
     }
 
