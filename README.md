@@ -49,19 +49,19 @@ let (mut encrypted_content, content_key) = rgp::encrypt(
 )
 .unwrap();
 
-// extract for Bob
-rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
-
-// decrypt message for Bob
-let (decrypted_content, decrypted_content_key) = rgp::decrypt(
-    Some(&verifying_key),
-    &encrypted_content,
-    rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
-)
-.unwrap();
-
-assert_eq!(decrypted_content, content);
-assert_eq!(decrypted_content_key, content_key);
+// extract for recipient
+if let rgp::Mode::Dh(encrypted_content_key) = rgp::extract_mode_mut(0, &mut encrypted_content) {
+    // decrypt message with content key
+    let (decrypted_content, decrypted_content_key) = rgp::decrypt(
+        Some(&verifying_key),
+        &encrypted_content,
+        rgp::DecryptMode::Dh(encrypted_content_key, sender_pub_key, receiver_priv_key),
+    )
+    .unwrap();
+    
+    assert_eq!(decrypted_content, content);
+    assert_eq!(decrypted_content_key, content_key);
+};
 ```
 
 #### How it works:
@@ -101,24 +101,29 @@ let hash_value = [1u8; 32]; // use an actual key
 
 let content = vec![0u8; 8_000_000];
 
-// encrypt message in `Hmac` mode
+// encrypt message keyed hash result
 let (mut encrypted_content, content_key) = rgp::encrypt(
     fingerprint,
     content.clone(),
-    rgp::EncryptMode::Hmac(hash_key, hash_value),
+    rgp::EncryptMode::Hmac(hash_key, hash_value, 42),
 )
 .unwrap();
 
-// decrypt message in `Hmac` mode
-let (decrypted_content, hashed_content_key) = rgp::decrypt(
-    Some(&verifying_key),
-    &encrypted_content,
-    rgp::DecryptMode::Hmac(hash_key, hash_value),
-)
-.unwrap();
+if let rgp::Mode::Hmac(itr) = rgp::extract_mode_mut(0, &mut encrypted_content) {
+    assert_eq!(itr, 42);
 
-assert_eq!(decrypted_content, content);
-assert_eq!(hashed_content_key, content_key);
+    // decrypt message with keyed hash result mode
+    let (decrypted_content, hashed_content_key) = rgp::decrypt(
+        Some(&verifying_key),
+        &encrypted_content,
+        rgp::DecryptMode::Hmac(hash_key, hash_value),
+    )
+    .unwrap();
+
+    assert_eq!(decrypted_content, content);
+    assert_eq!(hashed_content_key, content_key);
+};
+
 ```
 
 #### How it works:
@@ -131,6 +136,11 @@ assert_eq!(hashed_content_key, content_key);
 #### Format:
 
 - nonce = 24 bytes
+- iteration
+    - int size = 2 bits
+    - iteration
+        - numbers 0-63 = 6 bits
+        - numbers >63 = 1-8 bytes (big endian int)
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content to preserve deniability)
 - Poly1305 MAC = 16 bytes
@@ -154,15 +164,17 @@ let (mut encrypted_content, _) = rgp::encrypt(
 )
 .unwrap();
 
-// decrypt message with session key
-let (decrypted_content, _) = rgp::decrypt(
-    Some(&verifying_key),
-    &encrypted_content,
-    rgp::DecryptMode::Session(session_key),
-)
-.unwrap();
-
-assert_eq!(decrypted_content, content);
+if let rgp::Mode::Session = rgp::extract_mode_mut(0, &mut encrypted_content) {
+    // decrypt message with session key
+    let (decrypted_content, _) = rgp::decrypt(
+        Some(&verifying_key),
+        &encrypted_content,
+        rgp::DecryptMode::Session(session_key),
+    )
+    .unwrap();
+    
+    assert_eq!(decrypted_content, content);
+}
 ```
 
 #### How it works:
@@ -192,3 +204,4 @@ All benchmarks for multi-recipient payloads are for **20,000** recipients, and a
 ## Security
 
 THIS CODE HAS NOT BEEN AUDITED OR REVIEWED. USE AT YOUR OWN RISK.
+

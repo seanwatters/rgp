@@ -29,7 +29,7 @@ const SIGNATURE_LEN: usize = 64;
 /// ```rust
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1215];
+/// let content = vec![0u8; 1024];
 ///
 /// let signature = rgp::sign(&fingerprint, &content);
 ///
@@ -53,7 +53,7 @@ pub fn generate_fingerprint() -> ([u8; 32], [u8; 32]) {
 /// ```rust
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1215];
+/// let content = vec![0u8; 1024];
 ///
 /// let signature = rgp::sign(&fingerprint, &content);
 ///
@@ -76,7 +76,7 @@ pub fn sign(fingerprint: &[u8; 32], content: &[u8]) -> [u8; 64] {
 /// ```rust
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1215];
+/// let content = vec![0u8; 1024];
 ///
 /// let signature = rgp::sign(&fingerprint, &content);
 ///
@@ -119,69 +119,52 @@ pub fn generate_dh_keys() -> ([u8; 32], [u8; 32]) {
     (*priv_key.as_bytes(), *pub_key.as_bytes())
 }
 
-#[inline]
-fn gen_keys_header(key_count: usize) -> Vec<u8> {
-    match key_count {
-        0..=63 => vec![(0 << 6) | key_count as u8],
-        64..=318 => vec![((0 << 6) | 63), (key_count - 63) as u8],
+#[inline(always)]
+fn usize_to_bytes(num: usize) -> Vec<u8> {
+    match num {
+        0..=63 => vec![(0 << 6) | num as u8],
+        64..=318 => vec![((0 << 6) | 63), (num - 63) as u8],
         319..=65_598 => {
             let mut h = vec![(1 << 6) | 63];
-            h.extend_from_slice(&((key_count - 63) as u16).to_be_bytes());
+            h.extend_from_slice(&((num - 63) as u16).to_be_bytes());
             h
         }
         65_599..=4_294_967_358 => {
             let mut h = vec![(2 << 6) | 63];
-            h.extend_from_slice(&((key_count - 63) as u32).to_be_bytes());
+            h.extend_from_slice(&((num - 63) as u32).to_be_bytes());
             h
         }
         _ => {
             let mut h = vec![(3 << 6) | 63];
-            h.extend_from_slice(&((key_count - 63) as u64).to_be_bytes());
+            h.extend_from_slice(&((num - 63) as u64).to_be_bytes());
             h
         }
     }
 }
 
-#[inline]
-fn parse_keys_header(encrypted_content: &Vec<u8>) -> Result<(usize, usize), &'static str> {
-    let keys_header_size = encrypted_content[NONCE_LEN];
+#[inline(always)]
+fn bytes_to_usize(bytes: &[u8]) -> (usize, usize) {
+    let num_size = bytes[0];
 
-    if keys_header_size < 64 {
-        Ok((1, keys_header_size as usize))
+    if num_size < 64 {
+        (1, num_size as usize)
     } else {
-        let out = match (keys_header_size >> 6) & 0b11 {
-            0 => (2, encrypted_content[NONCE_LEN + 1] as usize + 63),
+        match (num_size >> 6) & 0b11 {
+            0 => (2, bytes[1] as usize + 63),
             1 => (
                 3,
-                u16::from_be_bytes(
-                    encrypted_content[NONCE_LEN + 1..NONCE_LEN + 3]
-                        .try_into()
-                        .unwrap(),
-                ) as usize
-                    + 63,
+                u16::from_be_bytes(bytes[1..3].try_into().unwrap()) as usize + 63,
             ),
             2 => (
                 5,
-                u32::from_be_bytes(
-                    encrypted_content[NONCE_LEN + 1..NONCE_LEN + 5]
-                        .try_into()
-                        .unwrap(),
-                ) as usize
-                    + 63,
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap()) as usize + 63,
             ),
             3 => (
                 9,
-                u64::from_be_bytes(
-                    encrypted_content[NONCE_LEN + 1..NONCE_LEN + 9]
-                        .try_into()
-                        .unwrap(),
-                ) as usize
-                    + 63,
+                u64::from_be_bytes(bytes[1..9].try_into().unwrap()) as usize + 63,
             ),
-            _ => return Err("unknown keys header value"),
-        };
-
-        Ok(out)
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -190,7 +173,7 @@ fn encrypt_content(
     fingerprint: [u8; 32],
     nonce: &GenericArray<u8, typenum::U24>,
     key: &GenericArray<u8, typenum::U32>,
-    mut content: Vec<u8>,
+    content: &mut Vec<u8>,
 ) -> Result<Vec<u8>, &'static str> {
     use chacha20poly1305::KeyInit;
 
@@ -215,7 +198,7 @@ fn dh_encrypt_keys(
     use rayon::prelude::*;
 
     let keys_count = pub_keys.len();
-    let header = gen_keys_header(keys_count);
+    let header = usize_to_bytes(keys_count);
 
     let priv_key = StaticSecret::from(priv_key);
 
@@ -247,7 +230,7 @@ pub enum EncryptMode<'a> {
 
     /// hashes the second tuple member, with the first
     /// tuple member as the hash key.
-    Hmac([u8; KEY_LEN], [u8; KEY_LEN]),
+    Hmac([u8; KEY_LEN], [u8; KEY_LEN], usize),
 
     /// uses the key that is passed in without modification.
     Session([u8; KEY_LEN]),
@@ -261,26 +244,26 @@ pub enum EncryptMode<'a> {
 ///
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1_000_000];
+/// let content = vec![0u8; 1024];
 /// let pub_keys = vec![receiver_pub_key];
 ///
 /// let (mut encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+/// if let rgp::Mode::Dh(content_key) = rgp::extract_mode_mut(0, &mut encrypted_content) {
+///     let (decrypted_content, _) = rgp::decrypt(
+///         Some(&verifying_key),
+///         &encrypted_content,
+///         rgp::DecryptMode::Dh(content_key, sender_pub_key, receiver_priv_key),
+///     )
+///     .unwrap();
 ///
-/// let (decrypted_content, _) = rgp::decrypt(
-///     Some(&verifying_key),
-///     &encrypted_content,
-///     rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
-/// )
-/// .unwrap();
-///
-/// assert_eq!(decrypted_content, content);
+///     assert_eq!(decrypted_content, content);
+/// };
 /// ```
 pub fn encrypt(
     fingerprint: [u8; 32],
-    content: Vec<u8>,
+    mut content: Vec<u8>,
     mode: EncryptMode,
 ) -> Result<(Vec<u8>, [u8; KEY_LEN]), &'static str> {
     let nonce = XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
@@ -288,20 +271,24 @@ pub fn encrypt(
 
     match mode {
         EncryptMode::Session(key) => {
-            let encrypted_content = encrypt_content(fingerprint, &nonce, &key.into(), content)?;
+            let encrypted_content =
+                encrypt_content(fingerprint, &nonce, &key.into(), &mut content)?;
             out.extend(encrypted_content);
 
             out.push(0);
 
             Ok((out, key))
         }
-        EncryptMode::Hmac(hash_key, key) => {
+        EncryptMode::Hmac(hash_key, key, itr) => {
             let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
                 .unwrap()
                 .chain_update(&key)
                 .finalize_fixed();
 
-            let encrypted_content = encrypt_content(fingerprint, &nonce, &key, content)?;
+            let itr_as_bytes = usize_to_bytes(itr);
+            out.extend(itr_as_bytes);
+
+            let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content)?;
             out.extend(encrypted_content);
 
             out.push(1);
@@ -315,7 +302,7 @@ pub fn encrypt(
             let (sender, receiver) = channel();
 
             rayon::spawn(move || {
-                let encrypted_content = encrypt_content(fingerprint, &nonce, &key, content);
+                let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content);
                 sender.send(encrypted_content).unwrap();
             });
 
@@ -333,6 +320,13 @@ pub fn encrypt(
     }
 }
 
+/// facilitates mode-specific decryption component extraction.
+pub enum Mode {
+    Session,
+    Hmac(usize),
+    Dh([u8; KEY_LEN]),
+}
+
 /// extract components from encrypted result.
 ///
 /// ```rust
@@ -341,49 +335,30 @@ pub fn encrypt(
 ///
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1_000_000];
+/// let content = vec![0u8; 1024];
 /// let pub_keys = vec![receiver_pub_key];
 ///
 /// let (encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// let (_, encrypted_content) = rgp::extract_for_key_position(0, encrypted_content).unwrap();
+/// let (mode, encrypted_content) = rgp::extract_mode(0, encrypted_content);
 ///
-/// let (decrypted_content, _) = rgp::decrypt(
-///     Some(&verifying_key),
-///     &encrypted_content,
-///     rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
-/// )
-/// .unwrap();
+/// if let rgp::Mode::Dh(content_key) = mode {
+///     let (decrypted_content, _) = rgp::decrypt(
+///         Some(&verifying_key),
+///         &encrypted_content,
+///         rgp::DecryptMode::Dh(content_key, sender_pub_key, receiver_priv_key),
+///     )
+///     .unwrap();
 ///
-/// assert_eq!(decrypted_content, content);
+///     assert_eq!(decrypted_content, content);
+/// };
 /// ```
-pub fn extract_for_key_position(
-    position: usize,
-    mut encrypted_content: Vec<u8>,
-) -> Result<(u8, Vec<u8>), &'static str> {
-    let mode = encrypted_content[encrypted_content.len() - 1];
+#[inline(always)]
+pub fn extract_mode(position: usize, mut encrypted_content: Vec<u8>) -> (Mode, Vec<u8>) {
+    let mode_meta = extract_mode_mut(position, &mut encrypted_content);
 
-    if mode == 2 {
-        let (keys_header_len, keys_count) = parse_keys_header(&encrypted_content)?;
-
-        let keys_start = NONCE_LEN + keys_header_len;
-        let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
-
-        let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
-
-        encrypted_content.copy_within(
-            encrypted_key_start..encrypted_key_start + KEY_LEN,
-            NONCE_LEN,
-        );
-        encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN + KEY_LEN);
-        encrypted_content
-            .truncate(encrypted_content.len() - keys_header_len - ((keys_count - 1) * KEY_LEN));
-
-        return Ok((mode, encrypted_content));
-    }
-
-    Ok((mode, encrypted_content))
+    (mode_meta, encrypted_content)
 }
 
 /// extract components from encrypted result, mutating the content passed in.
@@ -394,53 +369,63 @@ pub fn extract_for_key_position(
 ///
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1_000_000];
+/// let content = vec![0u8; 1024];
 /// let pub_keys = vec![receiver_pub_key];
 ///
 /// let (mut encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+/// if let rgp::Mode::Dh(content_key) = rgp::extract_mode_mut(0, &mut encrypted_content) {
+///     let (decrypted_content, _) = rgp::decrypt(
+///         Some(&verifying_key),
+///         &encrypted_content,
+///         rgp::DecryptMode::Dh(content_key, sender_pub_key, receiver_priv_key),
+///     )
+///     .unwrap();
 ///
-/// let (decrypted_content, _) = rgp::decrypt(
-///     Some(&verifying_key),
-///     &encrypted_content,
-///     rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
-/// )
-/// .unwrap();
-///
-/// assert_eq!(decrypted_content, content);
+///     assert_eq!(decrypted_content, content);
+/// };
 /// ```
-pub fn extract_for_key_position_mut(
-    position: usize,
-    encrypted_content: &mut Vec<u8>,
-) -> Result<u8, &'static str> {
-    let mode = encrypted_content[encrypted_content.len() - 1];
+pub fn extract_mode_mut(position: usize, encrypted_content: &mut Vec<u8>) -> Mode {
+    let mode = encrypted_content.pop().expect("at least one element");
 
-    if mode == 2 {
-        let (keys_header_len, keys_count) = parse_keys_header(encrypted_content)?;
+    match mode {
+        2 => {
+            let (keys_count_size, keys_count) =
+                bytes_to_usize(&encrypted_content[NONCE_LEN..NONCE_LEN + 9]);
 
-        let keys_start = NONCE_LEN + keys_header_len;
-        let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
+            let keys_start = NONCE_LEN + keys_count_size;
+            let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
 
-        let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
+            let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
 
-        encrypted_content.copy_within(
-            encrypted_key_start..encrypted_key_start + KEY_LEN,
-            NONCE_LEN,
-        );
-        encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN + KEY_LEN);
-        encrypted_content
-            .truncate(encrypted_content.len() - keys_header_len - ((keys_count - 1) * KEY_LEN));
+            let content_key: [u8; KEY_LEN] = encrypted_content
+                [encrypted_key_start..encrypted_key_start + KEY_LEN]
+                .try_into()
+                .unwrap();
+
+            encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN);
+            encrypted_content
+                .truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_LEN));
+
+            Mode::Dh(content_key)
+        }
+        1 => {
+            let (itr_size, itr) = bytes_to_usize(&encrypted_content[NONCE_LEN..NONCE_LEN + 9]);
+
+            encrypted_content.copy_within(NONCE_LEN + itr_size.., NONCE_LEN);
+            encrypted_content.truncate(encrypted_content.len() - itr_size);
+
+            Mode::Hmac(itr)
+        }
+        _ => Mode::Session,
     }
-
-    Ok(mode)
 }
 
 /// specifies how the content key should be handled for decryption.
 pub enum DecryptMode {
-    /// receiver priv key and sender pub key.
-    Dh([u8; KEY_LEN], [u8; KEY_LEN]),
+    /// encrypted content key, sender pub key, receiver priv key.
+    Dh([u8; KEY_LEN], [u8; KEY_LEN], [u8; KEY_LEN]),
 
     /// hashes the second tuple member, with the first
     /// tuple member as the hash key.
@@ -458,22 +443,22 @@ pub enum DecryptMode {
 ///
 /// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
 ///
-/// let content = vec![0u8; 1_000_000];
+/// let content = vec![0u8; 1024];
 /// let pub_keys = vec![receiver_pub_key];
 ///
 /// let (mut encrypted_content, _) =
 ///     rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Dh(sender_priv_key, &pub_keys)).unwrap();
 ///
-/// rgp::extract_for_key_position_mut(0, &mut encrypted_content).unwrap();
+/// if let rgp::Mode::Dh(content_key) = rgp::extract_mode_mut(0, &mut encrypted_content) {
+///     let (decrypted_content, _) = rgp::decrypt(
+///         Some(&verifying_key),
+///         &encrypted_content,
+///         rgp::DecryptMode::Dh(content_key, sender_pub_key, receiver_priv_key),
+///     )
+///     .unwrap();
 ///
-/// let (decrypted_content, _) = rgp::decrypt(
-///     Some(&verifying_key),
-///     &encrypted_content,
-///     rgp::DecryptMode::Dh(sender_pub_key, receiver_priv_key),
-/// )
-/// .unwrap();
-///
-/// assert_eq!(decrypted_content, content);
+///     assert_eq!(decrypted_content, content);
+/// };
 /// ```
 pub fn decrypt(
     verifying_key: Option<&[u8; 32]>,
@@ -483,24 +468,16 @@ pub fn decrypt(
     let nonce = &GenericArray::<u8, typenum::U24>::from_slice(&encrypted_content[0..NONCE_LEN]);
 
     let (content_key, encrypted_content): (GenericArray<u8, typenum::U32>, &[u8]) = match mode {
-        DecryptMode::Session(key) => (
-            key.into(),
-            &encrypted_content[NONCE_LEN..encrypted_content.len() - 1],
-        ),
+        DecryptMode::Session(key) => (key.into(), &encrypted_content[NONCE_LEN..]),
         DecryptMode::Hmac(hash_key, key) => {
             let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
                 .unwrap()
                 .chain_update(&key)
                 .finalize_fixed();
 
-            (
-                key,
-                &encrypted_content[NONCE_LEN..encrypted_content.len() - 1],
-            )
+            (key, &encrypted_content[NONCE_LEN..])
         }
-        DecryptMode::Dh(pub_key, priv_key) => {
-            let mut content_key = encrypted_content[NONCE_LEN..NONCE_LEN + KEY_LEN].to_vec();
-
+        DecryptMode::Dh(mut content_key, pub_key, priv_key) => {
             let priv_key = StaticSecret::from(priv_key);
             let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
 
@@ -511,12 +488,9 @@ pub fn decrypt(
 
             key_cipher.apply_keystream(&mut content_key);
 
-            let content_key = GenericArray::<u8, typenum::U32>::from_mut_slice(&mut content_key);
+            let content_key = GenericArray::from(content_key);
 
-            (
-                *content_key,
-                &encrypted_content[NONCE_LEN + KEY_LEN..encrypted_content.len() - 1],
-            )
+            (content_key, &encrypted_content[NONCE_LEN..])
         }
     };
 
