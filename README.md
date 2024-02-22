@@ -215,7 +215,7 @@ if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
 - XChaCha20 for content keys
 - XChaCha20Poly1305 for content
 
-### Disable Multi-threading
+## Disable Multi-threading
 
 The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](https://crates.io/crates/rayon) crate. Currently it only impacts the `encrypt` function when using `Dh` mode, but can be disabled by setting `default-features` to `false`.
 
