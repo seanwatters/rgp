@@ -9,6 +9,9 @@ This file may not be copied, modified, or distributed except according to those 
 
 mod interaction;
 
+#[cfg(feature = "multi-thread")]
+use rayon::prelude::*;
+#[cfg(feature = "multi-thread")]
 use std::sync::mpsc::channel;
 
 use blake2::digest::{FixedOutput, Mac};
@@ -27,17 +30,12 @@ const SIGNATURE_LEN: usize = 64;
 /// generates fingerprints and verifying keys for signing.
 ///
 /// ```rust
-/// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
+/// use rgp::generate_fingerprint;
 ///
-/// let content = vec![0u8; 1024];
+/// let (fingerprint, verifier) = generate_fingerprint();
 ///
-/// let signature = rgp::sign(&fingerprint, &content);
-///
-/// assert_eq!(signature.len(), 64);
-///
-/// let signature_verified = rgp::verify(&signature, &verifying_key, &content).is_ok();
-///
-/// assert_eq!(signature_verified, true);
+/// assert_eq!(fingerprint.len(), 32);
+/// assert_eq!(verifier.len(), 32);
 /// ```
 pub fn generate_fingerprint() -> ([u8; 32], [u8; 32]) {
     let fingerprint = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
@@ -49,22 +47,8 @@ pub fn generate_fingerprint() -> ([u8; 32], [u8; 32]) {
 }
 
 /// signs content.
-///
-/// ```rust
-/// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
-///
-/// let content = vec![0u8; 1024];
-///
-/// let signature = rgp::sign(&fingerprint, &content);
-///
-/// assert_eq!(signature.len(), 64);
-///
-/// let signature_verified = rgp::verify(&signature, &verifying_key, &content).is_ok();
-///
-/// assert_eq!(signature_verified, true);
-/// ```
 #[inline]
-pub fn sign(fingerprint: &[u8; 32], content: &[u8]) -> [u8; 64] {
+fn sign(fingerprint: &[u8; 32], content: &[u8]) -> [u8; 64] {
     let fingerprint = ed25519_dalek::SigningKey::from_bytes(fingerprint);
     let signature = fingerprint.sign(content);
 
@@ -72,42 +56,26 @@ pub fn sign(fingerprint: &[u8; 32], content: &[u8]) -> [u8; 64] {
 }
 
 /// verifies signatures.
-///
-/// ```rust
-/// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
-///
-/// let content = vec![0u8; 1024];
-///
-/// let signature = rgp::sign(&fingerprint, &content);
-///
-/// assert_eq!(signature.len(), 64);
-///
-/// let signature_verified = rgp::verify(&signature, &verifying_key, &content).is_ok();
-///
-/// assert_eq!(signature_verified, true);
-/// ```
 #[inline]
-pub fn verify(
-    signature: &[u8; 64],
-    verifying_key: &[u8; 32],
-    content: &[u8],
-) -> Result<(), &'static str> {
+fn verify(signature: &[u8; 64], verifier: &[u8; 32], content: &[u8]) -> Result<(), &'static str> {
     let signature = ed25519_dalek::Signature::from_bytes(signature);
-    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(verifying_key) {
+    let verifier = match ed25519_dalek::VerifyingKey::from_bytes(verifier) {
         Ok(vk) => vk,
         Err(_) => return Err("failed to convert verifying key"),
     };
 
-    match verifying_key.verify(content, &signature) {
+    match verifier.verify(content, &signature) {
         Ok(_) => Ok(()),
         Err(_) => return Err("failed to verify signature"),
     }
 }
 
-/// generates Diffie-Hellman pub/priv key pairs.
+/// generates `Dh` pub/priv key pairs.
 ///
 /// ```rust
-/// let (priv_key, pub_key) = rgp::generate_dh_keys();
+/// use rgp::generate_dh_keys;
+///
+/// let (priv_key, pub_key) = generate_dh_keys();
 ///
 /// assert_eq!(priv_key.len(), 32);
 /// assert_eq!(pub_key.len(), 32);
@@ -195,7 +163,6 @@ fn dh_encrypt_keys(
     content_key: &GenericArray<u8, typenum::U32>,
 ) -> (Vec<u8>, Vec<u8>) {
     use chacha20::cipher::KeyIvInit;
-    use rayon::prelude::*;
 
     let keys_count = pub_keys.len();
     let header = usize_to_bytes(keys_count);
@@ -204,25 +171,28 @@ fn dh_encrypt_keys(
 
     let mut keys = vec![0u8; KEY_LEN * keys_count];
 
-    keys.par_chunks_mut(KEY_LEN)
-        .enumerate()
-        .for_each(|(i, chunk)| {
-            let shared_secret = priv_key
-                .diffie_hellman(&PublicKey::from(pub_keys[i]))
-                .to_bytes();
+    #[cfg(feature = "multi-thread")]
+    let chunks = keys.par_chunks_mut(KEY_LEN);
+    #[cfg(not(feature = "multi-thread"))]
+    let chunks = keys.chunks_mut(KEY_LEN);
 
-            let mut key_cipher = XChaCha20::new(&shared_secret.into(), nonce);
+    chunks.enumerate().for_each(|(i, chunk)| {
+        let shared_secret = priv_key
+            .diffie_hellman(&PublicKey::from(pub_keys[i]))
+            .to_bytes();
 
-            let mut buf = content_key.clone();
+        let mut key_cipher = XChaCha20::new(&shared_secret.into(), nonce);
 
-            key_cipher.apply_keystream(&mut buf);
-            chunk[0..KEY_LEN].copy_from_slice(&buf);
-        });
+        let mut buf = content_key.clone();
+
+        key_cipher.apply_keystream(&mut buf);
+        chunk[0..KEY_LEN].copy_from_slice(&buf);
+    });
 
     (header, keys)
 }
 
-/// specifies how the content key should be handled for encryption.
+/// encapsulates the parameters and mode for encryption.
 pub enum Encrypt<'a> {
     /// generates random content key and encrypts for all
     /// recipients with their respective DH shared secret.
@@ -236,30 +206,78 @@ pub enum Encrypt<'a> {
     Session([u8; KEY_LEN]),
 }
 
-/// content encryption.
+/// signs and encrypts content.
 ///
 /// ```rust
-/// let (sender_priv_key, sender_pub_key) = rgp::generate_dh_keys();
-/// let (receiver_priv_key, receiver_pub_key) = rgp::generate_dh_keys();
-///
-/// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
+/// # use rgp::{decrypt, extract_components_mut, Components, Decrypt, generate_dh_keys, generate_fingerprint};
+/// # let (sender_priv_key, sender_pub_key) = generate_dh_keys();
+/// # let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
+/// # let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
+/// # let (hmac_key, hmac_value) = generate_dh_keys();
+/// # let (session_key, _) = generate_dh_keys();
+/// # let itr = 0;
+/// # let (fingerprint, verifier) = generate_fingerprint();
+/// #
+/// use rgp::{encrypt, Encrypt};
 ///
 /// let content = vec![0u8; 1024];
-/// let pub_keys = vec![receiver_pub_key];
+/// # let content_clone = content.clone();
+/// # let recipient_pub_keys = vec![receiver_pub_key];
 ///
-/// let (mut encrypted_content, _) =
-///     rgp::encrypt(fingerprint, content.clone(), rgp::Encrypt::Dh(sender_priv_key, &pub_keys)).unwrap();
+/// // Dh
+/// let (mut encrypted_content, content_key) = encrypt(
+///     fingerprint,
+///     content,
+///     Encrypt::Dh(sender_priv_key, &recipient_pub_keys)
+/// ).unwrap();
+/// # if let Components::Dh(content_key) = extract_components_mut(0, &mut encrypted_content) {
+/// #     let (decrypted_content, _) = decrypt(
+/// #         Some(&verifier),
+/// #         &encrypted_content,
+/// #         Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
+/// #     )
+/// #     .unwrap();
+/// #
+/// #     assert_eq!(decrypted_content, content_clone);
+/// # };
 ///
-/// if let rgp::Components::Dh(content_key) = rgp::extract_components_mut(0, &mut encrypted_content) {
-///     let (decrypted_content, _) = rgp::decrypt(
-///         Some(&verifying_key),
-///         &encrypted_content,
-///         rgp::Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
-///     )
-///     .unwrap();
+/// // Hmac
+/// # let content = content_clone.clone();
+/// let (mut encrypted_content, content_key) = encrypt(
+///     fingerprint,
+///     content,
+///     Encrypt::Hmac(hmac_key, hmac_value, itr)
+/// ).unwrap();
+/// # if let Components::Hmac(iteration) = extract_components_mut(0, &mut encrypted_content) {
+/// #     assert_eq!(iteration, itr);
+/// #
+/// #     let (decrypted_content, _) = decrypt(
+/// #         Some(&verifier),
+/// #         &encrypted_content,
+/// #         Decrypt::Hmac(hmac_key, hmac_value),
+/// #     )
+/// #     .unwrap();
+/// #
+/// #     assert_eq!(decrypted_content, content_clone);
+/// # };
 ///
-///     assert_eq!(decrypted_content, content);
-/// };
+/// // Session
+/// # let content = content_clone.clone();
+/// let (mut encrypted_content, content_key) = encrypt(
+///     fingerprint,
+///     content,
+///     Encrypt::Session(session_key)
+/// ).unwrap();
+/// # if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
+/// #     let (decrypted_content, _) = decrypt(
+/// #         Some(&verifier),
+/// #         &encrypted_content,
+/// #         Decrypt::Session(session_key),
+/// #     )
+/// #     .unwrap();
+/// #
+/// #     assert_eq!(decrypted_content, content_clone);
+/// # };
 /// ```
 pub fn encrypt(
     fingerprint: [u8; 32],
@@ -297,10 +315,13 @@ pub fn encrypt(
         }
         Encrypt::Dh(priv_key, pub_keys) => {
             use chacha20poly1305::KeyInit;
+
             let key = XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
 
+            #[cfg(feature = "multi-thread")]
             let (sender, receiver) = channel();
 
+            #[cfg(feature = "multi-thread")]
             rayon::spawn(move || {
                 let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content);
                 sender.send(encrypted_content).unwrap();
@@ -310,7 +331,11 @@ pub fn encrypt(
             out.extend(header);
             out.extend(keys);
 
+            #[cfg(feature = "multi-thread")]
             let encrypted_content = receiver.recv().unwrap()?;
+            #[cfg(not(feature = "multi-thread"))]
+            let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content)?;
+
             out.extend(encrypted_content);
 
             out.push(2);
@@ -328,32 +353,6 @@ pub enum Components {
 }
 
 /// extract components from encrypted result.
-///
-/// ```rust
-/// let (sender_priv_key, sender_pub_key) = rgp::generate_dh_keys();
-/// let (receiver_priv_key, receiver_pub_key) = rgp::generate_dh_keys();
-///
-/// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
-///
-/// let content = vec![0u8; 1024];
-/// let pub_keys = vec![receiver_pub_key];
-///
-/// let (encrypted_content, _) =
-///     rgp::encrypt(fingerprint, content.clone(), rgp::Encrypt::Dh(sender_priv_key, &pub_keys)).unwrap();
-///
-/// let (mode, encrypted_content) = rgp::extract_components(0, encrypted_content);
-///
-/// if let rgp::Components::Dh(content_key) = mode {
-///     let (decrypted_content, _) = rgp::decrypt(
-///         Some(&verifying_key),
-///         &encrypted_content,
-///         rgp::Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
-///     )
-///     .unwrap();
-///
-///     assert_eq!(decrypted_content, content);
-/// };
-/// ```
 #[inline(always)]
 pub fn extract_components(
     position: usize,
@@ -365,30 +364,6 @@ pub fn extract_components(
 }
 
 /// extract components from encrypted result, mutating the content passed in.
-///
-/// ```rust
-/// let (sender_priv_key, sender_pub_key) = rgp::generate_dh_keys();
-/// let (receiver_priv_key, receiver_pub_key) = rgp::generate_dh_keys();
-///
-/// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
-///
-/// let content = vec![0u8; 1024];
-/// let pub_keys = vec![receiver_pub_key];
-///
-/// let (mut encrypted_content, _) =
-///     rgp::encrypt(fingerprint, content.clone(), rgp::Encrypt::Dh(sender_priv_key, &pub_keys)).unwrap();
-///
-/// if let rgp::Components::Dh(content_key) = rgp::extract_components_mut(0, &mut encrypted_content) {
-///     let (decrypted_content, _) = rgp::decrypt(
-///         Some(&verifying_key),
-///         &encrypted_content,
-///         rgp::Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
-///     )
-///     .unwrap();
-///
-///     assert_eq!(decrypted_content, content);
-/// };
-/// ```
 pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) -> Components {
     let mode = encrypted_content.pop().expect("at least one element");
 
@@ -425,7 +400,7 @@ pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) 
     }
 }
 
-/// specifies how the content key should be handled for decryption.
+/// encapsulates the parameters and mode for decryption.
 pub enum Decrypt {
     /// encrypted content key, sender pub key, receiver priv key.
     Dh([u8; KEY_LEN], [u8; KEY_LEN], [u8; KEY_LEN]),
@@ -438,33 +413,53 @@ pub enum Decrypt {
     Session([u8; KEY_LEN]),
 }
 
-/// content decryption.
+/// decrypts and verifies content.
 ///
 /// ```rust
-/// let (sender_priv_key, sender_pub_key) = rgp::generate_dh_keys();
-/// let (receiver_priv_key, receiver_pub_key) = rgp::generate_dh_keys();
+/// # use rgp::{encrypt, generate_dh_keys, generate_fingerprint, Encrypt};
+/// # let (sender_priv_key, sender_pub_key) = generate_dh_keys();
+/// # let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
+/// # let (hmac_key, hmac_value) = generate_dh_keys();
+/// # let (session_key, _) = generate_dh_keys();
+/// # let (fingerprint, verifier) = generate_fingerprint();
+/// # let content = vec![0u8; 1024];
+/// # let pub_keys = vec![receiver_pub_key];
+/// # let (mut encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Dh(sender_priv_key, &pub_keys)).unwrap();
+/// #
+/// use rgp::{decrypt, extract_components_mut, Components, Decrypt};
 ///
-/// let (fingerprint, verifying_key) = rgp::generate_fingerprint();
-///
-/// let content = vec![0u8; 1024];
-/// let pub_keys = vec![receiver_pub_key];
-///
-/// let (mut encrypted_content, _) =
-///     rgp::encrypt(fingerprint, content.clone(), rgp::Encrypt::Dh(sender_priv_key, &pub_keys)).unwrap();
-///
-/// if let rgp::Components::Dh(content_key) = rgp::extract_components_mut(0, &mut encrypted_content) {
-///     let (decrypted_content, _) = rgp::decrypt(
-///         Some(&verifying_key),
-///         &encrypted_content,
-///         rgp::Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
-///     )
-///     .unwrap();
-///
-///     assert_eq!(decrypted_content, content);
+/// match extract_components_mut(0, &mut encrypted_content) {
+///     Components::Dh(key) => {
+///         let (decrypted_content, _) = decrypt(
+///             Some(&verifier),
+///             &encrypted_content,
+///             Decrypt::Dh(key, sender_pub_key, receiver_priv_key),
+///         )
+///         .unwrap();
+/// #       assert_eq!(decrypted_content, content);
+///     }
+///     Components::Hmac(itr) => {
+///         let (decrypted_content, _) = decrypt(
+///             Some(&verifier),
+///             &encrypted_content,
+///             Decrypt::Hmac(hmac_key, hmac_value),
+///         )
+///         .unwrap();
+/// #       assert_eq!(decrypted_content, content);
+///     }
+///     Components::Session => {
+///         let (decrypted_content, _) = decrypt(
+///             Some(&verifier),
+///             &encrypted_content,
+///             Decrypt::Session(session_key),
+///         )
+///         .unwrap();
+/// #       assert_eq!(decrypted_content, content);
+///     }
 /// };
 /// ```
 pub fn decrypt(
-    verifying_key: Option<&[u8; 32]>,
+    verifier: Option<&[u8; 32]>,
     encrypted_content: &[u8],
     mode: Decrypt,
 ) -> Result<(Vec<u8>, [u8; KEY_LEN]), &'static str> {
@@ -506,14 +501,14 @@ pub fn decrypt(
         Ok(mut content) => {
             let signature = content.split_off(content.len() - SIGNATURE_LEN);
 
-            match verifying_key {
-                Some(verifying_key) => {
+            match verifier {
+                Some(verifier) => {
                     let signature_as_bytes: [u8; SIGNATURE_LEN] = match signature.try_into() {
                         Ok(v) => v,
                         Err(_) => return Err("failed to convert signature to bytes"),
                     };
 
-                    verify(&signature_as_bytes, verifying_key, &content)?;
+                    verify(&signature_as_bytes, verifier, &content)?;
                     Ok((content, content_key.into()))
                 }
                 None => Ok((content, content_key.into())),
