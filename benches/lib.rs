@@ -55,7 +55,7 @@ fn session_encrypt_benchmark(c: &mut Criterion) {
 
     c.bench_function("session_encrypt", |b| {
         b.iter(|| {
-            rgp::encrypt(fingerprint, content.clone(), rgp::EncryptMode::Session(key)).unwrap();
+            rgp::encrypt(fingerprint, content.clone(), rgp::Encrypt::Session(key)).unwrap();
         })
     });
 }
@@ -71,7 +71,7 @@ fn hash_encrypt_benchmark(c: &mut Criterion) {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::EncryptMode::Hmac(hash_key, key, 0),
+                rgp::Encrypt::Hmac(hash_key, key, 0),
             )
             .unwrap();
         })
@@ -92,7 +92,7 @@ fn dh_encrypt_benchmark(c: &mut Criterion) {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
+                rgp::Encrypt::Dh(sender_priv_key, &pub_keys),
             )
             .unwrap();
         })
@@ -116,14 +116,14 @@ fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
             rgp::encrypt(
                 fingerprint,
                 content.clone(),
-                rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
+                rgp::Encrypt::Dh(sender_priv_key, &pub_keys),
             )
             .unwrap();
         })
     });
 }
 
-fn extract_mode_benchmark(c: &mut Criterion) {
+fn extract_components_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
     let (sender_priv_key, _) = rgp::generate_dh_keys();
 
@@ -138,18 +138,18 @@ fn extract_mode_benchmark(c: &mut Criterion) {
     let (encrypted_content, _) = rgp::encrypt(
         fingerprint,
         content,
-        rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
+        rgp::Encrypt::Dh(sender_priv_key, &pub_keys),
     )
     .unwrap();
 
-    c.bench_function("extract_mode", |b| {
+    c.bench_function("extract_components", |b| {
         b.iter(|| {
-            rgp::extract_mode(0, encrypted_content.clone());
+            rgp::extract_components(0, encrypted_content.clone());
         })
     });
 }
 
-fn extract_mode_mut_benchmark(c: &mut Criterion) {
+fn extract_components_mut_benchmark(c: &mut Criterion) {
     let (fingerprint, _) = rgp::generate_fingerprint();
     let (sender_priv_key, _) = rgp::generate_dh_keys();
 
@@ -164,13 +164,13 @@ fn extract_mode_mut_benchmark(c: &mut Criterion) {
     let (encrypted_content, _) = rgp::encrypt(
         fingerprint,
         content,
-        rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
+        rgp::Encrypt::Dh(sender_priv_key, &pub_keys),
     )
     .unwrap();
 
-    c.bench_function("extract_mode_mut", |b| {
+    c.bench_function("extract_components_mut", |b| {
         b.iter(|| {
-            rgp::extract_mode_mut(0, &mut encrypted_content.clone());
+            rgp::extract_components_mut(0, &mut encrypted_content.clone());
         })
     });
 }
@@ -182,16 +182,16 @@ fn session_decrypt_benchmark(c: &mut Criterion) {
     let content = vec![0u8; 8_000_000];
 
     let (mut encrypted_content, _) =
-        rgp::encrypt(fingerprint, content, rgp::EncryptMode::Session(key)).unwrap();
+        rgp::encrypt(fingerprint, content, rgp::Encrypt::Session(key)).unwrap();
 
-    rgp::extract_mode_mut(0, &mut encrypted_content);
+    rgp::extract_components_mut(0, &mut encrypted_content);
 
     c.bench_function("session_decrypt", |b| {
         b.iter(|| {
             rgp::decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                rgp::DecryptMode::Session(key),
+                rgp::Decrypt::Session(key),
             )
             .unwrap();
         })
@@ -204,21 +204,17 @@ fn hash_decrypt_benchmark(c: &mut Criterion) {
 
     let content = vec![0u8; 8_000_000];
 
-    let (mut encrypted_content, _) = rgp::encrypt(
-        fingerprint,
-        content,
-        rgp::EncryptMode::Hmac(hash_key, key, 0),
-    )
-    .unwrap();
+    let (mut encrypted_content, _) =
+        rgp::encrypt(fingerprint, content, rgp::Encrypt::Hmac(hash_key, key, 0)).unwrap();
 
-    rgp::extract_mode_mut(0, &mut encrypted_content);
+    rgp::extract_components_mut(0, &mut encrypted_content);
 
     c.bench_function("hash_decrypt", |b| {
         b.iter(|| {
             rgp::decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                rgp::DecryptMode::Hmac(hash_key, key),
+                rgp::Decrypt::Hmac(hash_key, key),
             )
             .unwrap();
         })
@@ -237,12 +233,12 @@ fn dh_decrypt_benchmark(c: &mut Criterion) {
     let (mut encrypted_content, _) = rgp::encrypt(
         fingerprint,
         content,
-        rgp::EncryptMode::Dh(sender_priv_key, &pub_keys),
+        rgp::Encrypt::Dh(sender_priv_key, &pub_keys),
     )
     .unwrap();
 
-    let content_key = match rgp::extract_mode_mut(0, &mut encrypted_content) {
-        rgp::Mode::Dh(key) => key,
+    let content_key = match rgp::extract_components_mut(0, &mut encrypted_content) {
+        rgp::Components::Dh(key) => key,
         _ => unreachable!(),
     };
 
@@ -251,7 +247,7 @@ fn dh_decrypt_benchmark(c: &mut Criterion) {
             rgp::decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                rgp::DecryptMode::Dh(content_key, sender_pub_key, receiver_priv_key),
+                rgp::Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
             )
             .unwrap();
         })
@@ -268,8 +264,8 @@ criterion_group!(
     hash_encrypt_benchmark,
     dh_encrypt_benchmark,
     dh_encrypt_multi_recipient_benchmark,
-    extract_mode_benchmark,
-    extract_mode_mut_benchmark,
+    extract_components_benchmark,
+    extract_components_mut_benchmark,
     session_decrypt_benchmark,
     hash_decrypt_benchmark,
     dh_decrypt_benchmark,
