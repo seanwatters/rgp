@@ -83,7 +83,7 @@ if let Components::Dh(key) = extract_components_mut(0, &mut encrypted_content) {
         - numbers >63 = 1-8 bytes (big endian int)
 - encrypted copies of content key = pub_keys.len() * 32 bytes
 - encrypted content = content.len()
-- signature = 64 bytes (encrypted along with the content to preserve deniability)
+- signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
 - mode = 1 byte (set to 2 for `Dh`)
 
@@ -148,7 +148,7 @@ if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content)
         - numbers 0-63 = 6 bits
         - numbers >63 = 1-8 bytes (big endian int)
 - encrypted content = content.len()
-- signature = 64 bytes (encrypted along with the content to preserve deniability)
+- signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
 - mode = 1 byte (set to 1 for `Hmac`)
 
@@ -197,13 +197,13 @@ if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
 
 1. Generate nonce
 2. Sign plaintext to generate content signature
-3. Encrypt plaintext and content signature with the provided content key, as is
+3. Encrypt plaintext and content signature with the provided key
 
 #### Format
 
 - nonce = 24 bytes
 - encrypted content = content.len()
-- signature = 64 bytes (encrypted along with the content to preserve deniability)
+- signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
 - mode = 1 byte (set to 0 for `Hmac`)
 
