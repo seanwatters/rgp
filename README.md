@@ -16,7 +16,7 @@ There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `S
 
 `Dh` mode provides forward secrecy by generating a fresh/random content key for each message and encrypting a copy of that key for each recipient (similar to PGP session keys).
 
-This mode also can be used to bootstrap the initial key exchange for `Session` and `Hmac` modes.
+This mode can also be used to bootstrap the initial key exchange for `Session` and `Hmac` modes.
 
 ```rust
 use rgp::{
