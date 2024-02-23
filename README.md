@@ -19,49 +19,7 @@ There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `S
 This mode can also be used to bootstrap the initial key exchange for `Session` and `Hmac` modes.
 
 ```rust
-use rgp::{
-    decrypt, encrypt, extract_components_mut, generate_dh_keys,
-    generate_fingerprint, Components, Decrypt, Encrypt
-};
-
-let (fingerprint, verifier) = generate_fingerprint();
-
-let (sender_priv_key, sender_pub_key) = generate_dh_keys();
-let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
-
-let mut pub_keys = vec![receiver_pub_key];
-
-// 5mb
-let content = vec![0u8; 5_000_000];
-
-// add another 10,000 recipients
-for _ in 0..10_000 {
-    let (_, pub_key) = generate_dh_keys();
-    pub_keys.push(pub_key)
-}
-
-// encrypt message for all recipients
-let (mut encrypted_content, content_key) = encrypt(
-    fingerprint,
-    content.clone(),
-    Encrypt::Dh(sender_priv_key, &pub_keys),
-)
-.unwrap();
-
-// extract encrypted content key at position 0
-if let Components::Dh(encrypted_key) = extract_components_mut(0, &mut encrypted_content) {
-
-    // decrypt message with encrypted content key
-    let (decrypted_content, decrypted_content_key) = decrypt(
-        Some(&verifier),
-        &encrypted_content,
-        Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key),
-    )
-    .unwrap();
-    
-    assert_eq!(decrypted_content, content);
-    assert_eq!(decrypted_content_key, content_key);
-};
+// TODO
 ```
 
 #### Steps
@@ -94,44 +52,7 @@ if let Components::Dh(encrypted_key) = extract_components_mut(0, &mut encrypted_
 `Hmac` mode provides backward secrecy, and can enable forward secrecy when the HMAC key is kept secret, if only the content key is compromised. Includes an iterator to make "ratcheting" logic easier to implement.
 
 ```rust
-use rgp::{
-    decrypt, encrypt, extract_components_mut, generate_dh_keys,
-    generate_fingerprint, Components, Decrypt, Encrypt
-};
-
-let (fingerprint, verifier) = generate_fingerprint();
-
-// use actually secret values
-let hmac_key = [0u8; 32];
-let hmac_value = [1u8; 32];
-
-// 5mb
-let content = vec![0u8; 5_000_000];
-
-// encrypt message keyed hash result
-let (mut encrypted_content, content_key) = encrypt(
-    fingerprint,
-    content.clone(),
-    Encrypt::Hmac(hmac_key, hmac_value, 42),
-)
-.unwrap();
-
-// extract iterator
-if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content) {
-    assert_eq!(itr, 42);
-
-    // decrypt message with keyed hash result mode
-    let (decrypted_content, hashed_content_key) = decrypt(
-        Some(&verifier),
-        &encrypted_content,
-        rgp::Decrypt::Hmac(hmac_key, hmac_value),
-    )
-    .unwrap();
-
-    assert_eq!(decrypted_content, content);
-    assert_eq!(hashed_content_key, content_key);
-};
-
+// TODO
 ```
 
 #### Steps
@@ -159,40 +80,7 @@ if let Components::Hmac(itr) = extract_components_mut(0, &mut encrypted_content)
 `Session` provides no forward or backward secrecy, and uses the provided key "as is" without any modification.
 
 ```rust
-use rgp::{
-    decrypt, encrypt, extract_components_mut, generate_dh_keys,
-    generate_fingerprint, Components, Decrypt, Encrypt
-};
-
-let (fingerprint, verifier) = generate_fingerprint();
-
-// use an actually secret key
-let session_key = [0u8; 32];
-
-// 5mb
-let content = vec![0u8; 5_000_000];
-
-// encrypt message with a session key
-let (mut encrypted_content, _) = encrypt(
-    fingerprint,
-    content.clone(),
-    Encrypt::Session(session_key),
-)
-.unwrap();
-
-// session doesn't need additional components but does need to be processed
-if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
-
-    // decrypt message with session key
-    let (decrypted_content, _) = decrypt(
-        Some(&verifier),
-        &encrypted_content,
-        Decrypt::Session(session_key),
-    )
-    .unwrap();
-    
-    assert_eq!(decrypted_content, content);
-}
+// TODO
 ```
 
 #### Steps

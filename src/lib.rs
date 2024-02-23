@@ -7,547 +7,276 @@ This file may not be copied, modified, or distributed except according to those 
 
 #![doc = include_str!("../README.md")]
 
-mod interaction;
+mod crypto;
+pub use crypto::*;
 
-#[cfg(feature = "multi-thread")]
-use rayon::prelude::*;
-#[cfg(feature = "multi-thread")]
-use std::sync::mpsc::channel;
+use std::error::Error;
+use uuid::Uuid;
 
-use blake2::digest::{FixedOutput, Mac};
-use chacha20::{
-    cipher::{generic_array::GenericArray, typenum, StreamCipher},
-    XChaCha20,
-};
-use chacha20poly1305::{aead::Aead, AeadCore, XChaCha20Poly1305};
-use ed25519_dalek::{Signer, Verifier};
-use x25519_dalek::{PublicKey, StaticSecret};
-
-const NONCE_LEN: usize = 24;
-const KEY_LEN: usize = 32;
-const SIGNATURE_LEN: usize = 64;
-
-/// generates fingerprints and verifying keys for signing.
-///
-/// ```rust
-/// use rgp::generate_fingerprint;
-///
-/// let (fingerprint, verifier) = generate_fingerprint();
-///
-/// assert_eq!(fingerprint.len(), 32);
-/// assert_eq!(verifier.len(), 32);
-/// ```
-pub fn generate_fingerprint() -> ([u8; 32], [u8; 32]) {
-    let fingerprint = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
-
-    (
-        fingerprint.to_bytes(),
-        fingerprint.verifying_key().to_bytes(),
-    )
-}
-
-/// signs content.
-#[inline]
-fn sign(fingerprint: &[u8; 32], content: &[u8]) -> [u8; 64] {
-    let fingerprint = ed25519_dalek::SigningKey::from_bytes(fingerprint);
-    let signature = fingerprint.sign(content);
-
-    signature.to_bytes()
-}
-
-/// verifies signatures.
-#[inline]
-fn verify(signature: &[u8; 64], verifier: &[u8; 32], content: &[u8]) -> Result<(), &'static str> {
-    let signature = ed25519_dalek::Signature::from_bytes(signature);
-    let verifier = match ed25519_dalek::VerifyingKey::from_bytes(verifier) {
-        Ok(vk) => vk,
-        Err(_) => return Err("failed to convert verifying key"),
-    };
-
-    match verifier.verify(content, &signature) {
-        Ok(_) => Ok(()),
-        Err(_) => return Err("failed to verify signature"),
-    }
-}
-
-/// generates `Dh` pub/priv key pairs.
-///
-/// ```rust
-/// use rgp::generate_dh_keys;
-///
-/// let (priv_key, pub_key) = generate_dh_keys();
-///
-/// assert_eq!(priv_key.len(), 32);
-/// assert_eq!(pub_key.len(), 32);
-/// ```
-pub fn generate_dh_keys() -> ([u8; 32], [u8; 32]) {
-    let priv_key = x25519_dalek::StaticSecret::random_from_rng(rand_core::OsRng);
-    let pub_key = x25519_dalek::PublicKey::from(&priv_key);
-
-    (*priv_key.as_bytes(), *pub_key.as_bytes())
-}
-
-#[inline(always)]
-fn usize_to_bytes(num: usize) -> Vec<u8> {
-    match num {
-        0..=63 => vec![(0 << 6) | num as u8],
-        64..=318 => vec![((0 << 6) | 63), (num - 63) as u8],
-        319..=65_598 => {
-            let mut h = vec![(1 << 6) | 63];
-            h.extend_from_slice(&((num - 63) as u16).to_be_bytes());
-            h
-        }
-        65_599..=4_294_967_358 => {
-            let mut h = vec![(2 << 6) | 63];
-            h.extend_from_slice(&((num - 63) as u32).to_be_bytes());
-            h
-        }
-        _ => {
-            let mut h = vec![(3 << 6) | 63];
-            h.extend_from_slice(&((num - 63) as u64).to_be_bytes());
-            h
-        }
-    }
-}
-
-#[inline(always)]
-fn bytes_to_usize(bytes: &[u8]) -> (usize, usize) {
-    let num_size = bytes[0];
-
-    if num_size < 64 {
-        (1, num_size as usize)
-    } else {
-        match (num_size >> 6) & 0b11 {
-            0 => (2, bytes[1] as usize + 63),
-            1 => (
-                3,
-                u16::from_be_bytes(bytes[1..3].try_into().unwrap()) as usize + 63,
-            ),
-            2 => (
-                5,
-                u32::from_be_bytes(bytes[1..5].try_into().unwrap()) as usize + 63,
-            ),
-            3 => (
-                9,
-                u64::from_be_bytes(bytes[1..9].try_into().unwrap()) as usize + 63,
-            ),
-            _ => unreachable!(),
-        }
-    }
-}
-
-#[inline]
-fn encrypt_content(
-    fingerprint: [u8; 32],
-    nonce: &GenericArray<u8, typenum::U24>,
-    key: &GenericArray<u8, typenum::U32>,
-    content: &mut Vec<u8>,
-) -> Result<Vec<u8>, &'static str> {
-    use chacha20poly1305::KeyInit;
-
-    let signature = sign(&fingerprint, &content);
-    content.extend(signature);
-
-    let content_cipher = XChaCha20Poly1305::new(key);
-    match content_cipher.encrypt(nonce, content.as_ref()) {
-        Ok(encrypted_content) => Ok(encrypted_content),
-        Err(_) => Err("failed to encrypt content"),
-    }
-}
-
-#[inline]
-fn dh_encrypt_keys(
-    priv_key: [u8; KEY_LEN],
-    pub_keys: &Vec<[u8; KEY_LEN]>,
-    nonce: &GenericArray<u8, typenum::U24>,
-    content_key: &GenericArray<u8, typenum::U32>,
-) -> (Vec<u8>, Vec<u8>) {
-    use chacha20::cipher::KeyIvInit;
-
-    let keys_count = pub_keys.len();
-    let header = usize_to_bytes(keys_count);
-
-    let priv_key = StaticSecret::from(priv_key);
-
-    let mut keys = vec![0u8; KEY_LEN * keys_count];
-
-    #[cfg(feature = "multi-thread")]
-    let chunks = keys.par_chunks_mut(KEY_LEN);
-    #[cfg(not(feature = "multi-thread"))]
-    let chunks = keys.chunks_mut(KEY_LEN);
-
-    chunks.enumerate().for_each(|(i, chunk)| {
-        let shared_secret = priv_key
-            .diffie_hellman(&PublicKey::from(pub_keys[i]))
-            .to_bytes();
-
-        let mut key_cipher = XChaCha20::new(&shared_secret.into(), nonce);
-
-        let mut buf = content_key.clone();
-
-        key_cipher.apply_keystream(&mut buf);
-        chunk[0..KEY_LEN].copy_from_slice(&buf);
-    });
-
-    (header, keys)
-}
-
-/// encapsulates the parameters and mode for encryption.
-pub enum Encrypt<'a> {
-    /// generates random content key and encrypts for all
-    /// recipients with their respective DH shared secret.
-    Dh([u8; KEY_LEN], &'a Vec<[u8; KEY_LEN]>),
-
-    /// hashes the second tuple member, with the first
-    /// tuple member as the hash key.
-    Hmac([u8; KEY_LEN], [u8; KEY_LEN], usize),
-
-    /// uses the key that is passed in without modification.
-    Session([u8; KEY_LEN]),
-}
-
-/// signs and encrypts content.
-///
-/// ```rust
-/// # use rgp::{decrypt, extract_components_mut, Components, Decrypt, generate_dh_keys, generate_fingerprint};
-/// # let (sender_priv_key, sender_pub_key) = generate_dh_keys();
-/// # let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
-/// # let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
-/// # let (hmac_key, hmac_value) = generate_dh_keys();
-/// # let (session_key, _) = generate_dh_keys();
-/// # let itr = 0;
-/// # let (fingerprint, verifier) = generate_fingerprint();
-/// #
-/// use rgp::{encrypt, Encrypt};
-///
-/// let content = vec![0u8; 1024];
-/// # let content_clone = content.clone();
-/// # let recipient_pub_keys = vec![receiver_pub_key];
-///
-/// // Dh
-/// let (mut encrypted_content, content_key) = encrypt(
-///     fingerprint,
-///     content,
-///     Encrypt::Dh(sender_priv_key, &recipient_pub_keys)
-/// ).unwrap();
-/// # if let Components::Dh(content_key) = extract_components_mut(0, &mut encrypted_content) {
-/// #     let (decrypted_content, _) = decrypt(
-/// #         Some(&verifier),
-/// #         &encrypted_content,
-/// #         Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
-/// #     )
-/// #     .unwrap();
-/// #
-/// #     assert_eq!(decrypted_content, content_clone);
-/// # };
-///
-/// // Hmac
-/// # let content = content_clone.clone();
-/// let (mut encrypted_content, content_key) = encrypt(
-///     fingerprint,
-///     content,
-///     Encrypt::Hmac(hmac_key, hmac_value, itr)
-/// ).unwrap();
-/// # if let Components::Hmac(iteration) = extract_components_mut(0, &mut encrypted_content) {
-/// #     assert_eq!(iteration, itr);
-/// #
-/// #     let (decrypted_content, _) = decrypt(
-/// #         Some(&verifier),
-/// #         &encrypted_content,
-/// #         Decrypt::Hmac(hmac_key, hmac_value),
-/// #     )
-/// #     .unwrap();
-/// #
-/// #     assert_eq!(decrypted_content, content_clone);
-/// # };
-///
-/// // Session
-/// # let content = content_clone.clone();
-/// let (mut encrypted_content, content_key) = encrypt(
-///     fingerprint,
-///     content,
-///     Encrypt::Session(session_key)
-/// ).unwrap();
-/// # if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
-/// #     let (decrypted_content, _) = decrypt(
-/// #         Some(&verifier),
-/// #         &encrypted_content,
-/// #         Decrypt::Session(session_key),
-/// #     )
-/// #     .unwrap();
-/// #
-/// #     assert_eq!(decrypted_content, content_clone);
-/// # };
-/// ```
-pub fn encrypt(
-    fingerprint: [u8; 32],
-    mut content: Vec<u8>,
-    mode: Encrypt,
-) -> Result<(Vec<u8>, [u8; KEY_LEN]), &'static str> {
-    let nonce = XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
-    let mut out = nonce.to_vec();
-
-    match mode {
-        Encrypt::Session(key) => {
-            let encrypted_content =
-                encrypt_content(fingerprint, &nonce, &key.into(), &mut content)?;
-            out.extend(encrypted_content);
-
-            out.push(0);
-
-            Ok((out, key))
-        }
-        Encrypt::Hmac(hash_key, key, itr) => {
-            let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
-                .unwrap()
-                .chain_update(&key)
-                .finalize_fixed();
-
-            let itr_as_bytes = usize_to_bytes(itr);
-            out.extend(itr_as_bytes);
-
-            let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content)?;
-            out.extend(encrypted_content);
-
-            out.push(1);
-
-            Ok((out, key.into()))
-        }
-        Encrypt::Dh(priv_key, pub_keys) => {
-            use chacha20poly1305::KeyInit;
-
-            let key = XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
-
-            #[cfg(feature = "multi-thread")]
-            let (sender, receiver) = channel();
-
-            #[cfg(feature = "multi-thread")]
-            rayon::spawn(move || {
-                let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content);
-                sender.send(encrypted_content).unwrap();
-            });
-
-            let (header, keys) = dh_encrypt_keys(priv_key, pub_keys, &nonce, &key);
-            out.extend(header);
-            out.extend(keys);
-
-            #[cfg(feature = "multi-thread")]
-            let encrypted_content = receiver.recv().unwrap()?;
-            #[cfg(not(feature = "multi-thread"))]
-            let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content)?;
-
-            out.extend(encrypted_content);
-
-            out.push(2);
-
-            Ok((out, key.into()))
-        }
-    }
-}
-
-/// facilitates mode-specific decryption component extraction.
-pub enum Components {
+/// the encryption mode for a given message.
+pub enum Mode {
+    Dh,
+    Hmac,
     Session,
-    Hmac(usize),
-    Dh([u8; KEY_LEN]),
 }
 
-/// extract components from encrypted result.
-///
-/// ```rust
-/// # use rgp::{encrypt, generate_dh_keys, generate_fingerprint, Encrypt};
-/// # let (fingerprint, verifier) = generate_fingerprint();
-/// # let (session_key, _) = generate_dh_keys();
-/// # let content = vec![0u8; 1024];
-/// # let (encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Session(session_key)).unwrap();
-/// #
-/// use rgp::{extract_components, Components};
-///
-/// let (components, encrypted_content) = extract_components(0, encrypted_content);
-///
-/// match components {
-///     Components::Session => { /* decrypt for session */ }
-///     Components::Hmac(itr) => { /* decrypt for HMAC */ }
-///     Components::Dh(key) => { /* decrypt for diffie-hellman */ }
-/// };
-/// ```
-#[inline(always)]
-pub fn extract_components(
-    position: usize,
-    mut encrypted_content: Vec<u8>,
-) -> (Components, Vec<u8>) {
-    let mode_meta = extract_components_mut(position, &mut encrypted_content);
+/// facilitates interaction binding to remote.
+pub trait Connection {
+    fn create_stream(&self) -> Result<Uuid, Box<dyn Error>>;
 
-    (mode_meta, encrypted_content)
+    fn send(&self, id: Uuid, encrypted: &[u8]) -> Result<Uuid, Box<dyn Error>>;
+    fn recv(&self, id: Uuid, position: usize) -> Result<Vec<Vec<u8>>, Box<dyn Error>>;
 }
 
-/// extract components from encrypted result, mutating the content passed in.
-///
-/// ```rust
-/// # use rgp::{encrypt, generate_dh_keys, generate_fingerprint, Encrypt};
-/// # let (fingerprint, verifier) = generate_fingerprint();
-/// # let (session_key, _) = generate_dh_keys();
-/// # let content = vec![0u8; 1024];
-/// # let (mut encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Session(session_key)).unwrap();
-/// #
-/// use rgp::{extract_components_mut, Components};
-///
-/// match extract_components_mut(0, &mut encrypted_content) {
-///     Components::Session => { /* decrypt for session */ }
-///     Components::Hmac(itr) => { /* decrypt for HMAC */ }
-///     Components::Dh(key) => { /* decrypt for diffie-hellman */ }
-/// };
-/// ```
-pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) -> Components {
-    let mode = encrypted_content.pop().expect("at least one element");
+struct SendStream<'a, T: Connection> {
+    connection: &'a T,
 
-    match mode {
-        2 => {
-            let (keys_count_size, keys_count) =
-                bytes_to_usize(&encrypted_content[NONCE_LEN..NONCE_LEN + 9]);
+    id: Uuid,
 
-            let keys_start = NONCE_LEN + keys_count_size;
-            let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
+    // initialized as a constant but can be set
+    hmac_key: [u8; 32],
+    // (iteration for current hmac_key, current key value)
+    last_key: (usize, [u8; 32]),
 
-            let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
+    dh_priv: [u8; 32],
+    // `dh_pubs` and `usernames` are ordered and correlated
+    dh_pubs: Vec<[u8; 32]>,
+    usernames: Vec<String>,
+}
 
-            let content_key: [u8; KEY_LEN] = encrypted_content
-                [encrypted_key_start..encrypted_key_start + KEY_LEN]
-                .try_into()
-                .unwrap();
+impl<'a, T: Connection> SendStream<'a, T> {
+    pub fn new(connection: &'a T) -> Self {
+        let (dh_priv, _) = generate_dh_keys();
 
-            encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN);
-            encrypted_content
-                .truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_LEN));
+        Self {
+            connection,
 
-            Components::Dh(content_key)
+            id: Uuid::new_v4(),
+
+            hmac_key: [0u8; 32],
+            last_key: (0, [0u8; 32]),
+
+            dh_priv,
+            dh_pubs: vec![],
+            usernames: vec![],
         }
-        1 => {
-            let (itr_size, itr) = bytes_to_usize(&encrypted_content[NONCE_LEN..NONCE_LEN + 9]);
+    }
 
-            encrypted_content.copy_within(NONCE_LEN + itr_size.., NONCE_LEN);
-            encrypted_content.truncate(encrypted_content.len() - itr_size);
+    /// bytes format
+    ///
+    /// - id = 16 bytes
+    /// - hmac_key = 32 bytes (encrypted)
+    /// - last_key (encrypted)
+    ///     - iteration
+    ///         - size = 2 bits
+    ///         - iteration = 0-8 bytes
+    ///     - value = 32 bytes
+    /// - recipients count
+    ///     - size = 2 bits
+    ///     - count = 0-8 bytes
+    /// - dh_pubs = 32 bytes * recipient count
+    /// - usernames = variable bytes * recipient count (encrypted)
+    pub fn from_bytes(bytes: &[u8], connection: &'a T) -> Self {
+        Self {
+            connection,
 
-            Components::Hmac(itr)
+            id: Uuid::new_v4(),
+
+            hmac_key: [0u8; 32],
+            last_key: (0, [0u8; 32]),
+
+            dh_priv: [0u8; 32],
+            dh_pubs: vec![],
+            usernames: vec![],
         }
-        _ => Components::Session,
+    }
+
+    pub fn to_bytes() -> Vec<u8> {
+        vec![]
+    }
+
+    pub fn send(&mut self, content: Vec<u8>, mode: Mode) -> Result<(), Box<dyn Error>> {
+        // TODO: use the sender's fingerprint
+        let (fingerprint, _) = crate::generate_fingerprint();
+
+        let (mode, new_itr) = match mode {
+            Mode::Dh => (Encrypt::Dh(self.dh_priv, &self.dh_pubs), 0),
+            Mode::Hmac => (
+                Encrypt::Hmac(self.hmac_key, self.last_key.1, self.last_key.0),
+                self.last_key.0 + 1,
+            ),
+            Mode::Session => (Encrypt::Session(self.last_key.1), self.last_key.0),
+        };
+
+        let (encrypted_content, key) = encrypt(fingerprint, content, mode)?;
+
+        self.last_key.0 = new_itr;
+        self.last_key.1 = key;
+
+        self.connection.send(self.id, &encrypted_content)?;
+
+        Ok(())
     }
 }
 
-/// encapsulates the parameters and mode for decryption.
-pub enum Decrypt {
-    /// encrypted content key, sender pub key, receiver priv key.
-    Dh([u8; KEY_LEN], [u8; KEY_LEN], [u8; KEY_LEN]),
+struct RecvStream<'a, T: Connection> {
+    connection: &'a T,
 
-    /// hashes the second tuple member, with the first
-    /// tuple member as the hash key.
-    Hmac([u8; KEY_LEN], [u8; KEY_LEN]),
+    id: Uuid,
+    position: usize,
 
-    /// uses the key that is passed in without modification.
-    Session([u8; KEY_LEN]),
+    // ?? will need to handle OOO messages
+    // ?? and only increment these values once
+    // ?? we know we've seen every increment on
+    // ?? the iterator up until that point by storing
+    // ?? a "seen_iterators" so that we can build up
+    // ?? [2, 3, 4, 5], while we wait for 1 to come in
+    // ?? (once 1 comes in, we can set to 5).
+    hmac_key: [u8; 32],
+    last_key: (usize, [u8; 32]),
+
+    dh_pub: [u8; 32],
+    dh_priv: [u8; 32],
+
+    verifying_key: [u8; 32],
 }
 
-/// decrypts and verifies content.
-///
-/// ```rust
-/// # use rgp::{encrypt, generate_dh_keys, generate_fingerprint, Encrypt};
-/// # let (sender_priv_key, sender_pub_key) = generate_dh_keys();
-/// # let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
-/// # let (hmac_key, hmac_value) = generate_dh_keys();
-/// # let (session_key, _) = generate_dh_keys();
-/// # let (fingerprint, verifier) = generate_fingerprint();
-/// # let content = vec![0u8; 1024];
-/// # let pub_keys = vec![receiver_pub_key];
-/// # let (mut encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Dh(sender_priv_key, &pub_keys)).unwrap();
-/// #
-/// use rgp::{decrypt, extract_components_mut, Components, Decrypt};
-///
-/// match extract_components_mut(0, &mut encrypted_content) {
-///     Components::Dh(key) => {
-///         let (decrypted_content, _) = decrypt(
-///             Some(&verifier),
-///             &encrypted_content,
-///             Decrypt::Dh(key, sender_pub_key, receiver_priv_key),
-///         )
-///         .unwrap();
-/// #       assert_eq!(decrypted_content, content);
-///     }
-///     Components::Hmac(itr) => {
-///         let (decrypted_content, _) = decrypt(
-///             Some(&verifier),
-///             &encrypted_content,
-///             Decrypt::Hmac(hmac_key, hmac_value),
-///         )
-///         .unwrap();
-/// #       assert_eq!(decrypted_content, content);
-///     }
-///     Components::Session => {
-///         let (decrypted_content, _) = decrypt(
-///             Some(&verifier),
-///             &encrypted_content,
-///             Decrypt::Session(session_key),
-///         )
-///         .unwrap();
-/// #       assert_eq!(decrypted_content, content);
-///     }
-/// };
-/// ```
-pub fn decrypt(
-    verifier: Option<&[u8; 32]>,
-    encrypted_content: &[u8],
-    mode: Decrypt,
-) -> Result<(Vec<u8>, [u8; KEY_LEN]), &'static str> {
-    let nonce = &GenericArray::<u8, typenum::U24>::from_slice(&encrypted_content[0..NONCE_LEN]);
+impl<'a, T: Connection> RecvStream<'a, T> {
+    /// bytes format
+    ///
+    /// - id = 16 bytes
+    /// - position
+    ///     - size = 2 bits
+    ///     - position = 0-8 bytes
+    /// - hmac_key = 32 bytes (encrypted)
+    /// - last_key (encrypted)
+    ///     - iteration
+    ///         - size = 2 bits
+    ///         - iteration = 0-8 bytes
+    ///     - value = 32 bytes
+    pub fn from_bytes(bytes: &[u8], connection: &'a T) {}
 
-    let (content_key, encrypted_content): (GenericArray<u8, typenum::U32>, &[u8]) = match mode {
-        Decrypt::Session(key) => (key.into(), &encrypted_content[NONCE_LEN..]),
-        Decrypt::Hmac(hash_key, key) => {
-            let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
-                .unwrap()
-                .chain_update(&key)
-                .finalize_fixed();
+    pub fn to_bytes() -> Vec<u8> {
+        vec![]
+    }
 
-            (key, &encrypted_content[NONCE_LEN..])
-        }
-        Decrypt::Dh(mut content_key, pub_key, priv_key) => {
-            let priv_key = StaticSecret::from(priv_key);
-            let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
+    pub fn recv(&mut self) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+        let mut encrypted_msgs = self.connection.recv(self.id, self.position)?;
 
-            let mut key_cipher = {
-                use chacha20::cipher::KeyIvInit;
-                XChaCha20::new(&shared_secret.into(), nonce)
+        let mut out: Vec<Vec<u8>> = vec![];
+
+        for encrypted_msg in &mut encrypted_msgs {
+            let (decrypted, key) = match extract_components_mut(self.position, encrypted_msg) {
+                Components::Dh(content_key) => decrypt(
+                    Some(&self.verifying_key),
+                    encrypted_msg,
+                    Decrypt::Dh(content_key, self.dh_priv, self.dh_pub),
+                )?,
+                Components::Hmac(itr) => {
+                    // TODO: do stuff with itr
+
+                    decrypt(
+                        Some(&self.verifying_key),
+                        encrypted_msg,
+                        Decrypt::Hmac(self.hmac_key, self.last_key.1),
+                    )?
+                }
+                Components::Session => decrypt(
+                    Some(&self.verifying_key),
+                    encrypted_msg,
+                    Decrypt::Session(self.last_key.1),
+                )?,
             };
 
-            key_cipher.apply_keystream(&mut content_key);
+            self.last_key = (0, key);
 
-            let content_key = GenericArray::from(content_key);
-
-            (content_key, &encrypted_content[NONCE_LEN..])
+            out.push(decrypted)
         }
-    };
 
-    let content_cipher = {
-        use chacha20poly1305::KeyInit;
-        XChaCha20Poly1305::new(&content_key)
-    };
-
-    match content_cipher.decrypt(nonce, encrypted_content) {
-        Ok(mut content) => {
-            let signature = content.split_off(content.len() - SIGNATURE_LEN);
-
-            match verifier {
-                Some(verifier) => {
-                    let signature_as_bytes: [u8; SIGNATURE_LEN] = match signature.try_into() {
-                        Ok(v) => v,
-                        Err(_) => return Err("failed to convert signature to bytes"),
-                    };
-
-                    verify(&signature_as_bytes, verifier, &content)?;
-                    Ok((content, content_key.into()))
-                }
-                None => Ok((content, content_key.into())),
-            }
-        }
-        Err(_) => return Err("failed to decrypt content"),
+        Ok(out)
     }
 }
+
+/// the unifying interface for a collection of encrypted message streams.
+pub struct Interaction<'a, T: Connection> {
+    id: Uuid,
+
+    send_stream: SendStream<'a, T>,
+    recv_streams: Vec<RecvStream<'a, T>>,
+
+    // probably should be a BTreeMap but for now
+    // we're just tracking (start, end, pub key, priv key) in a tuple
+    recv_keys: Vec<(u64, u64, [u8; 32], [u8; 32])>,
+}
+
+impl<'a, T: Connection> Interaction<'a, T> {
+    pub fn new(connection: &'a T) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+
+            send_stream: SendStream::new(connection),
+            recv_streams: vec![],
+
+            recv_keys: vec![],
+        }
+    }
+
+    /// bytes format
+    ///
+    /// - receive streams count
+    ///     - size = 2 bits
+    ///     - count = 0-8 bytes
+    /// - send stream = ?
+    /// - receive streams
+    ///     - count
+    ///         - size = 2 bits
+    ///         - count = 0-8 bytes
+    ///     - streams = ? * receive streams count
+    /// - recv_keys
+    ///     - count
+    ///         - size = 2 bits
+    ///         - count = 0-8 bytes
+    ///     - start = 8 bytes
+    ///     - end = 8 bytes
+    ///     - pub key = 32 bytes
+    ///     - priv key = 32 bytes (encrypted)
+    pub fn from_bytes(bytes: &[u8], connection: &'a T) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+
+            send_stream: SendStream::new(connection),
+            recv_streams: vec![],
+
+            recv_keys: vec![],
+        }
+    }
+
+    pub fn to_bytes() -> Vec<u8> {
+        vec![]
+    }
+
+    pub fn send(&mut self, content: Vec<u8>, mode: Mode) -> Result<(), Box<dyn Error>> {
+        self.send_stream.send(content, mode)
+    }
+
+    pub fn recv_all(&mut self) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+        let mut out: Vec<Vec<u8>> = vec![];
+
+        // TODO: parallelize this
+        for recv_stream in &mut self.recv_streams {
+            let messages = recv_stream.recv()?;
+            out.extend(messages);
+        }
+
+        Ok(out)
+    }
+}
+
+// ?? will need a "bootstrapping stream" for adding a new user to an interaction
+//  * sharing your public key for them to encrypt with
+//  * sharing their position on your send stream
+//  * sharing the current ratchet state
+//  * sharing any "historical keys" for your stream
+
+// ?? will also need "repair streams" maybe? but those will likely just be identical to
+// ?? bootstrapping streams as they serve the same "re-sync" purpose.
