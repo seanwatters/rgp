@@ -34,5 +34,5 @@ default = ["multi-thread"]
 multi-thread = ["dep:rayon"]
 
 [[bench]]
-name = "lib"
+name = "crypto"
 harness = false
