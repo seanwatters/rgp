@@ -634,7 +634,7 @@ checksum = "dbb5fb1acd8a1a18b3dd5be62d25485eb770e05afb408a9627d14d451bae12da"
 
 [[package]]
 name = "rgp"
-version = "0.2.2"
+version = "0.2.4"
 dependencies = [
  "blake2",
  "chacha20",

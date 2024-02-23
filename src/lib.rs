@@ -353,6 +353,24 @@ pub enum Components {
 }
 
 /// extract components from encrypted result.
+///
+/// ```rust
+/// # use rgp::{encrypt, generate_dh_keys, generate_fingerprint, Encrypt};
+/// # let (fingerprint, verifier) = generate_fingerprint();
+/// # let (session_key, _) = generate_dh_keys();
+/// # let content = vec![0u8; 1024];
+/// # let (encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Session(session_key)).unwrap();
+/// #
+/// use rgp::{extract_components, Components};
+///
+/// let (components, encrypted_content) = extract_components(0, encrypted_content);
+///
+/// match components {
+///     Components::Session => { /* decrypt for session */ }
+///     Components::Hmac(itr) => { /* decrypt for HMAC */ }
+///     Components::Dh(key) => { /* decrypt for diffie-hellman */ }
+/// };
+/// ```
 #[inline(always)]
 pub fn extract_components(
     position: usize,
@@ -364,6 +382,22 @@ pub fn extract_components(
 }
 
 /// extract components from encrypted result, mutating the content passed in.
+///
+/// ```rust
+/// # use rgp::{encrypt, generate_dh_keys, generate_fingerprint, Encrypt};
+/// # let (fingerprint, verifier) = generate_fingerprint();
+/// # let (session_key, _) = generate_dh_keys();
+/// # let content = vec![0u8; 1024];
+/// # let (mut encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Session(session_key)).unwrap();
+/// #
+/// use rgp::{extract_components_mut, Components};
+///
+/// match extract_components_mut(0, &mut encrypted_content) {
+///     Components::Session => { /* decrypt for session */ }
+///     Components::Hmac(itr) => { /* decrypt for HMAC */ }
+///     Components::Dh(key) => { /* decrypt for diffie-hellman */ }
+/// };
+/// ```
 pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) -> Components {
     let mode = encrypted_content.pop().expect("at least one element");
 

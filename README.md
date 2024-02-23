@@ -14,7 +14,9 @@ There are currently three supported modes: `Dh` (Diffie-Hellman), `Hmac`, and `S
 
 ### Diffie-Hellman
 
-`Dh` mode provides forward secrecy by generating a fresh/random content key for each message and encrypting a copy of that key for each recipient (similar to the way PGP session keys work).
+`Dh` mode provides forward secrecy by generating a fresh/random content key for each message and encrypting a copy of that key for each recipient (similar to PGP session keys).
+
+This mode can also be used to bootstrap the initial key exchange for `Session` and `Hmac` modes.
 
 ```rust
 use rgp::{
@@ -47,13 +49,13 @@ let (mut encrypted_content, content_key) = encrypt(
 .unwrap();
 
 // extract encrypted content key at position 0
-if let Components::Dh(key) = extract_components_mut(0, &mut encrypted_content) {
+if let Components::Dh(encrypted_key) = extract_components_mut(0, &mut encrypted_content) {
 
     // decrypt message with encrypted content key
     let (decrypted_content, decrypted_content_key) = decrypt(
         Some(&verifier),
         &encrypted_content,
-        Decrypt::Dh(key, sender_pub_key, receiver_priv_key),
+        Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key),
     )
     .unwrap();
     
@@ -89,7 +91,7 @@ if let Components::Dh(key) = extract_components_mut(0, &mut encrypted_content) {
 
 ### HMAC
 
-`Hmac` mode provides backward secrecy, and can enable forward secrecy when both the HMAC key and value are kept secret, and only the content key is compromised.
+`Hmac` mode provides backward secrecy, and can enable forward secrecy when the HMAC key is kept secret, if only the content key is compromised. Includes an iterator to make "ratcheting" logic easier to implement.
 
 ```rust
 use rgp::{
@@ -205,7 +207,7 @@ if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 0 for `Hmac`)
+- mode = 1 byte (set to 0 for `Session`)
 
 ## Ciphersuite
 
