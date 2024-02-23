@@ -205,7 +205,7 @@ if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 0 for `Hmac`)
+- mode = 1 byte (set to 0 for `Session`)
 
 ## Ciphersuite
 
