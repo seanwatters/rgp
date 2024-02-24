@@ -25,7 +25,6 @@ pub fn main() -> Result<(), &'static str> {
         Encrypt::Session(session_key, false),
     )?;
 
-    // session doesn't need additional components but does need to be processed
     if let Components::Session(_) = extract_components_mut(0, &mut encrypted_content) {
         // decrypt message with session key
         let (decrypted_content, _) = decrypt(
