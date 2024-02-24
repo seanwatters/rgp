@@ -342,7 +342,7 @@ pub fn encrypt(
                     encrypt_content(fingerprint, &nonce, &session_key.into(), &mut content)?;
                 out.extend(encrypted_content);
 
-                out.push(1);
+                out.push(0);
 
                 Ok((out, session_key))
             }
@@ -395,6 +395,7 @@ pub fn encrypt(
 }
 
 /// facilitates mode-specific decryption component extraction.
+#[derive(Debug)]
 pub enum Components {
     Session(
         /// optional encrypted key

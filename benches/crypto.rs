@@ -142,12 +142,12 @@ fn extract_components_mut_benchmark(c: &mut Criterion) {
 
 fn session_decrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = generate_fingerprint();
-    let (key, _) = generate_dh_keys();
+    let (session_key, _) = generate_dh_keys();
 
     let content = vec![0u8; 5_000_000];
 
     let (mut encrypted_content, _) =
-        encrypt(fingerprint, content, Encrypt::Session(key, false)).unwrap();
+        encrypt(fingerprint, content, Encrypt::Session(session_key, false)).unwrap();
 
     extract_components_mut(0, &mut encrypted_content);
 
@@ -156,7 +156,7 @@ fn session_decrypt_benchmark(c: &mut Criterion) {
             decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                Decrypt::Session(key, None),
+                Decrypt::Session(session_key, None),
             )
             .unwrap();
         })
@@ -165,12 +165,12 @@ fn session_decrypt_benchmark(c: &mut Criterion) {
 
 fn hmac_decrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = generate_fingerprint();
-    let (hmac_key, key) = generate_dh_keys();
+    let (hmac_key, hmac_value) = generate_dh_keys();
 
     let content = vec![0u8; 5_000_000];
 
     let (mut encrypted_content, _) =
-        encrypt(fingerprint, content, Encrypt::Hmac(hmac_key, key, 0)).unwrap();
+        encrypt(fingerprint, content, Encrypt::Hmac(hmac_key, hmac_value, 0)).unwrap();
 
     extract_components_mut(0, &mut encrypted_content);
 
@@ -179,7 +179,7 @@ fn hmac_decrypt_benchmark(c: &mut Criterion) {
             decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                Decrypt::Hmac(hmac_key, key),
+                Decrypt::Hmac(hmac_key, hmac_value),
             )
             .unwrap();
         })
