@@ -6,7 +6,7 @@
 [![docs.rs](https://docs.rs/rgp/badge.svg)](https://docs.rs/rgp/)
 [![dependency status](https://deps.rs/repo/github/seanwatters/rgp/status.svg)](https://deps.rs/repo/github/seanwatters/rgp)
 
-"Relatively Good Privacy" is a library designed to enable efficient E2EE for large-audience pub/sub.
+_Relatively Good Privacy_
 
 ## Usage
 
@@ -40,10 +40,10 @@ let (mut encrypted_content, content_key) = encrypt(
 )
 .unwrap();
 
-// extract encrypted content key at position 0
+// extract encrypted content key for first recipient
 if let Components::Dh(encrypted_key, _) = extract_components_mut(0, &mut encrypted_content) {
 
-    // decrypt message with encrypted content key
+    // decrypt message
     let (decrypted_content, decrypted_content_key) = decrypt(
         Some(&verifier),
         &encrypted_content,
@@ -58,13 +58,11 @@ if let Components::Dh(encrypted_key, _) = extract_components_mut(0, &mut encrypt
 
 ## Modes
 
-There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, `Session` and `Kem` (Key Encapsulation Mechanism). All modes embed the ability to sign content and verify the sender. Deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
+There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, `Session` and `Kem` (Key Encapsulation Mechanism). All modes embed content signing and verification; deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
 
 ### Diffie-Hellman
 
 `Dh` mode provides forward secrecy by generating a fresh/random content key for each message and encrypting a copy of that key for each recipient with their respective shared secrets (similar to PGP session keys). This mode can be used to manage the initial key exchange/ratchet seeding for `Session` and `Hmac` modes.
-
-`Dh` mode allows for the optional inclusion of an HMAC key, which will hash the shared secret for each user with a key which is already known to all subscribers to an interaction; while it is not possible to use `Dh` mode with an HMAC key for an initial key exchange, it can enhance the quantum-resistance of the mode when the HMAC key is kept secret and was initially shared using post-quantum public key encryption (i.e `Kem` mode outlined below). While this feature is likely not useful for much other than introducing a third, less-frequently-incrementing "PQ ratchet," to an interaction, it does allow us to add some theoretical protections for windows of messages, while still mostly preserving the performance characteristics and taking advantage of the pre-quantum security benefits of existing approaches.
 
 #### Steps
 
@@ -93,7 +91,7 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 
 ### HMAC
 
-`Hmac` mode provides backward secrecy, and can enable forward secrecy when the HMAC key is kept secret, if only the content key is compromised. Includes an iterator to make "ratcheting" logic easier to implement.
+`Hmac` mode provides backward secrecy, and can enable forward secrecy when the HMAC key is kept secret, if only the content key is compromised. Includes an iterator to make ratcheting logic easier to implement.
 
 #### Steps
 
@@ -141,7 +139,7 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 
 `Kem` mode is designed to facilitate public key cryptography for post-quantum encryption. It enables forward secrecy by generating a fresh/random content key for each message and encrypting a copy of that key for each recipient with their respective encapsulated keys.
 
-This mode can also be used to manage the initial key exchange/ratchet seeding for `Session` and `Hmac` as well as seed an HMAC key for usage with `Dh` mode.
+This mode can be used to manage the initial key exchange/ratchet seeding for `Session` and `Hmac` as well as seed an HMAC key for usage with `Dh` mode.
 
 This mode depends on the [classic-mceliece-rust](https://crates.io/crates/classic-mceliece-rust) crate and requires the `"pq"` feature to be enabled. It is also recommended that the `Kem` with Diffie-Hellman hybrid, option be used until the underlying PQ crypto has been sufficiently validated.
 
@@ -150,9 +148,9 @@ This mode depends on the [classic-mceliece-rust](https://crates.io/crates/classi
 rgp = { version = "x.x.x", features = ["pq"] }
 ```
 
-Note: given the [size](https://classic.mceliece.org/impl.html) of Classic McEliece public keys it is impractical in most cases to hold thousands of recipients keys in memory at one time, so the expectation would be that this mode be used in smaller batches to share seed keys when new subscribers are admitted to an interaction. From that point `Dh` with HMAC would be a more suitable hybrid option for continued quantum-resistent public key ratcheting (`Dh` with HMAC just isn't an option until a shared HMAC key has been seeded).
+NOTE: given the [size](https://classic.mceliece.org/impl.html) of Classic McEliece public keys it is impractical in most cases to hold thousands of recipients keys in memory at one time, so the expectation would be that this mode be used in smaller batches to share seed keys when new subscribers are admitted to an interaction. From that point `Dh` with HMAC could be a more suitable hybrid option for continued quantum-resistent public key ratcheting.
 
-Classic McEliece was chosen despite its larger key sizes because it has a much smaller ciphertext, which is included for each recipient on each message. Given that for this mode, the size of the actual output is only increased by 96 bytes per-recipient (as compared to `Dh` mode), it is possible that `Kem` could be optimized to read from a stream of public keys so that they don't all have to be in memory at one time, but for now this "smaller batches" limitation feels reasonable, as the encapsulate/decapsulate operations come with a fairly high computational overhead.
+Classic McEliece was chosen despite its larger key sizes because it has a much smaller ciphertext, which is included for each recipient on each message. Given that for this mode the size of the actual output is only increased by 96 bytes per-recipient (as compared to `Dh` mode), it is possible that `Kem` could be optimized to read from a stream of public keys so that they don't all have to fit in memory at one time, but for now this "smaller batches" limitation feels reasonable as the encapsulate/decapsulate operations also come with a fairly high computational overhead.
 
 #### Steps
 
