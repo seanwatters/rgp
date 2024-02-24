@@ -16,12 +16,14 @@ use rgp::{
     generate_fingerprint, Components, Decrypt, Encrypt
 };
 
+// generate sender fingerprint and public verifier
 let (fingerprint, verifier) = generate_fingerprint();
 
+// generate key pairs for sender and recipient
 let (sender_priv_key, sender_pub_key) = generate_dh_keys();
-let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
+let (recipient_priv_key, recipient_pub_key) = generate_dh_keys();
 
-let mut pub_keys = vec![receiver_pub_key];
+let mut pub_keys = vec![recipient_pub_key];
 
 // 8mb
 let content = vec![0u8; 8_000_000];
@@ -41,13 +43,19 @@ let (mut encrypted_content, content_key) = encrypt(
 .unwrap();
 
 // extract encrypted content key for first recipient
-if let Components::Dh(encrypted_key, _) = extract_components_mut(0, &mut encrypted_content) {
-
+if let Components::Dh(encrypted_key, _) = 
+    extract_components_mut(0, &mut encrypted_content) 
+{
     // decrypt message
     let (decrypted_content, decrypted_content_key) = decrypt(
         Some(&verifier),
         &encrypted_content,
-        Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key, None),
+        Decrypt::Dh(
+            encrypted_key, 
+            sender_pub_key, 
+            recipient_priv_key, 
+            None,
+        ),
     )
     .unwrap();
     
@@ -55,6 +63,8 @@ if let Components::Dh(encrypted_key, _) = extract_components_mut(0, &mut encrypt
     assert_eq!(decrypted_content_key, content_key);
 };
 ```
+
+More in the [examples](https://github.com/seanwatters/rgp/tree/main/examples) directory.
 
 ## Modes
 
