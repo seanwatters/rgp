@@ -6,7 +6,7 @@
 [![docs.rs](https://docs.rs/rgp/badge.svg)](https://docs.rs/rgp/)
 [![dependency status](https://deps.rs/repo/github/seanwatters/rgp/status.svg)](https://deps.rs/repo/github/seanwatters/rgp)
 
-_Relatively Good Privacy_
+_"Relatively Good Privacy"_
 
 ## Usage
 
@@ -59,6 +59,15 @@ if let Components::Dh(encrypted_key, _) = extract_components_mut(0, &mut encrypt
 ## Modes
 
 There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, `Session` and `Kem` (Key Encapsulation Mechanism). All modes embed content signing and verification; deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
+
+#### Ciphersuite
+
+- Blake2s256 for HMAC
+- Ed25519 for signatures
+- mceliece348864 for KEM
+- X25519 for Diffie-Hellman
+- XChaCha20 for content keys
+- XChaCha20Poly1305 for content
 
 ### Diffie-Hellman
 
@@ -178,14 +187,11 @@ Classic McEliece was chosen despite its larger key sizes because it has a much s
 - Poly1305 MAC = 16 bytes
 - mode = 1 byte (set to 4 for `Kem`)
 
-## Ciphersuite
+## Performance
 
-- Blake2s256 for HMAC
-- Ed25519 for signatures
-- X25519 for shared secrets
-- XChaCha20 for content keys
-- XChaCha20Poly1305 for content
-- Classic McEliece (348864) for KEM
+To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml).
+
+All benchmarks for multi-recipient `Dh` payloads are for **10,000** recipients, and all benchmarks for sign+encrypt/decrypt+verify are using **5mb** of data.
 
 ## Disable Multi-threading
 
@@ -195,12 +201,6 @@ The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](http
 [dependencies]
 rgp = { version = "x.x.x", default-features = false }
 ```
-
-## Performance
-
-To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml).
-
-All benchmarks for multi-recipient `Dh` payloads are for **10,000** recipients, and all benchmarks for sign+encrypt/decrypt+verify are using **5mb** of data.
 
 ## License
 
