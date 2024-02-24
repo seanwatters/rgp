@@ -14,6 +14,9 @@ pub fn main() -> Result<(), &'static str> {
     let (fingerprint, verifier) = generate_fingerprint();
 
     let (sender_priv_key, sender_pub_key) = generate_dh_keys();
+    // use an actually secret key
+    let hmac_key = [0u8; 32];
+
     let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
 
     let mut pub_keys = vec![receiver_pub_key];
@@ -31,20 +34,29 @@ pub fn main() -> Result<(), &'static str> {
     let (mut encrypted_content, content_key) = encrypt(
         fingerprint,
         content.clone(),
-        Encrypt::Dh(sender_priv_key, &pub_keys, None),
+        Encrypt::Dh(sender_priv_key, &pub_keys, Some(hmac_key)),
     )?;
 
-    // extract encrypted content key at position 0
-    if let Components::Dh(encrypted_key, _) = extract_components_mut(0, &mut encrypted_content) {
-        // decrypt message with encrypted content key
-        let (decrypted_content, decrypted_content_key) = decrypt(
-            Some(&verifier),
-            &encrypted_content,
-            Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key, None),
-        )?;
+    // extract encrypted content key and whether it was encrypted with hmac at position 0
+    if let Components::Dh(encrypted_key, with_hmac) =
+        extract_components_mut(0, &mut encrypted_content)
+    {
+        if with_hmac {
+            // decrypt message with encrypted content key and hmac key
+            let (decrypted_content, decrypted_content_key) = decrypt(
+                Some(&verifier),
+                &encrypted_content,
+                Decrypt::Dh(
+                    encrypted_key,
+                    sender_pub_key,
+                    receiver_priv_key,
+                    Some(hmac_key),
+                ),
+            )?;
 
-        assert_eq!(decrypted_content, content);
-        assert_eq!(decrypted_content_key, content_key);
+            assert_eq!(decrypted_content, content);
+            assert_eq!(decrypted_content_key, content_key);
+        }
     };
 
     Ok(())

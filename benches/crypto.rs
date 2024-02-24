@@ -20,7 +20,7 @@ fn session_encrypt_benchmark(c: &mut Criterion) {
 
     c.bench_function("session_encrypt", |b| {
         b.iter(|| {
-            encrypt(fingerprint, content.clone(), Encrypt::Session(key)).unwrap();
+            encrypt(fingerprint, content.clone(), Encrypt::Session(key, false)).unwrap();
         })
     });
 }
@@ -57,7 +57,7 @@ fn dh_encrypt_benchmark(c: &mut Criterion) {
             encrypt(
                 fingerprint,
                 content.clone(),
-                Encrypt::Dh(sender_priv_key, &pub_keys),
+                Encrypt::Dh(sender_priv_key, &pub_keys, None),
             )
             .unwrap();
         })
@@ -81,7 +81,7 @@ fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
             encrypt(
                 fingerprint,
                 content.clone(),
-                Encrypt::Dh(sender_priv_key, &pub_keys),
+                Encrypt::Dh(sender_priv_key, &pub_keys, None),
             )
             .unwrap();
         })
@@ -103,7 +103,7 @@ fn extract_components_benchmark(c: &mut Criterion) {
     let (encrypted_content, _) = encrypt(
         fingerprint,
         content,
-        Encrypt::Dh(sender_priv_key, &pub_keys),
+        Encrypt::Dh(sender_priv_key, &pub_keys, None),
     )
     .unwrap();
 
@@ -129,7 +129,7 @@ fn extract_components_mut_benchmark(c: &mut Criterion) {
     let (encrypted_content, _) = encrypt(
         fingerprint,
         content,
-        Encrypt::Dh(sender_priv_key, &pub_keys),
+        Encrypt::Dh(sender_priv_key, &pub_keys, None),
     )
     .unwrap();
 
@@ -146,7 +146,8 @@ fn session_decrypt_benchmark(c: &mut Criterion) {
 
     let content = vec![0u8; 5_000_000];
 
-    let (mut encrypted_content, _) = encrypt(fingerprint, content, Encrypt::Session(key)).unwrap();
+    let (mut encrypted_content, _) =
+        encrypt(fingerprint, content, Encrypt::Session(key, false)).unwrap();
 
     extract_components_mut(0, &mut encrypted_content);
 
@@ -155,7 +156,7 @@ fn session_decrypt_benchmark(c: &mut Criterion) {
             decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                Decrypt::Session(key),
+                Decrypt::Session(key, None),
             )
             .unwrap();
         })
@@ -197,12 +198,12 @@ fn dh_decrypt_benchmark(c: &mut Criterion) {
     let (mut encrypted_content, _) = encrypt(
         fingerprint,
         content,
-        Encrypt::Dh(sender_priv_key, &pub_keys),
+        Encrypt::Dh(sender_priv_key, &pub_keys, None),
     )
     .unwrap();
 
     let content_key = match extract_components_mut(0, &mut encrypted_content) {
-        Components::Dh(key) => key,
+        Components::Dh(key, _) => key,
         _ => unreachable!(),
     };
 
@@ -211,7 +212,7 @@ fn dh_decrypt_benchmark(c: &mut Criterion) {
             decrypt(
                 Some(&verifying_key),
                 &encrypted_content,
-                Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
+                Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key, None),
             )
             .unwrap();
         })

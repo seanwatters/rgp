@@ -19,9 +19,9 @@ use chacha20poly1305::{aead::Aead, AeadCore, XChaCha20Poly1305};
 use ed25519_dalek::{Signer, Verifier};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-const NONCE_LEN: usize = 24;
-const KEY_LEN: usize = 32;
-const SIGNATURE_LEN: usize = 64;
+const NONCE_SIZE: usize = 24;
+const KEY_SIZE: usize = 32;
+const SIGNATURE_SIZE: usize = 64;
 
 /// generates fingerprints and verifying keys for signing.
 ///
@@ -153,8 +153,9 @@ fn encrypt_content(
 
 #[inline]
 fn dh_encrypt_keys(
-    priv_key: [u8; KEY_LEN],
-    pub_keys: &Vec<[u8; KEY_LEN]>,
+    priv_key: [u8; KEY_SIZE],
+    pub_keys: &Vec<[u8; KEY_SIZE]>,
+    hmac_key: Option<[u8; KEY_SIZE]>,
     nonce: &GenericArray<u8, typenum::U24>,
     content_key: &GenericArray<u8, typenum::U32>,
 ) -> (Vec<u8>, Vec<u8>) {
@@ -165,24 +166,33 @@ fn dh_encrypt_keys(
 
     let priv_key = StaticSecret::from(priv_key);
 
-    let mut keys = vec![0u8; KEY_LEN * keys_count];
+    let mut keys = vec![0u8; KEY_SIZE * keys_count];
 
     #[cfg(feature = "multi-thread")]
-    let chunks = keys.par_chunks_mut(KEY_LEN);
+    let chunks = keys.par_chunks_mut(KEY_SIZE);
     #[cfg(not(feature = "multi-thread"))]
-    let chunks = keys.chunks_mut(KEY_LEN);
+    let chunks = keys.chunks_mut(KEY_SIZE);
 
     chunks.enumerate().for_each(|(i, chunk)| {
-        let shared_secret = priv_key
-            .diffie_hellman(&PublicKey::from(pub_keys[i]))
-            .to_bytes();
+        let mut shared_secret = GenericArray::from(
+            priv_key
+                .diffie_hellman(&PublicKey::from(pub_keys[i]))
+                .to_bytes(),
+        );
 
-        let mut key_cipher = XChaCha20::new(&shared_secret.into(), nonce);
+        if let Some(hmac_key) = hmac_key {
+            shared_secret = blake2::Blake2sMac256::new_from_slice(&hmac_key)
+                .unwrap()
+                .chain_update(&shared_secret)
+                .finalize_fixed();
+        }
 
-        let mut buf = content_key.clone();
+        let mut key_cipher = XChaCha20::new(&shared_secret, nonce);
 
-        key_cipher.apply_keystream(&mut buf);
-        chunk[0..KEY_LEN].copy_from_slice(&buf);
+        let mut content_key = content_key.clone();
+        key_cipher.apply_keystream(&mut content_key);
+
+        chunk[0..KEY_SIZE].copy_from_slice(&content_key);
     });
 
     (header, keys)
@@ -191,15 +201,34 @@ fn dh_encrypt_keys(
 /// encapsulates the parameters and mode for encryption.
 pub enum Encrypt<'a> {
     /// generates random content key and encrypts for all
-    /// recipients with their respective DH shared secret.
-    Dh([u8; KEY_LEN], &'a Vec<[u8; KEY_LEN]>),
+    /// recipients with their respective Diffie-Hellman shared secret.
+    Dh(
+        /// sender private key
+        [u8; KEY_SIZE],
+        /// recipient public keys
+        &'a Vec<[u8; KEY_SIZE]>,
+        /// optional HMAC key
+        Option<[u8; KEY_SIZE]>,
+    ),
 
     /// hashes the second tuple member, with the first
-    /// tuple member as the hash key.
-    Hmac([u8; KEY_LEN], [u8; KEY_LEN], usize),
+    /// tuple member as the HMAC key.
+    Hmac(
+        /// HMAC key
+        [u8; KEY_SIZE],
+        /// HMAC value
+        [u8; KEY_SIZE],
+        /// iteration
+        usize,
+    ),
 
     /// uses the key that is passed in without modification.
-    Session([u8; KEY_LEN]),
+    Session(
+        /// session key
+        [u8; KEY_SIZE],
+        /// with key gen
+        bool,
+    ),
 }
 
 /// signs and encrypts content.
@@ -224,13 +253,13 @@ pub enum Encrypt<'a> {
 /// let (mut encrypted_content, content_key) = encrypt(
 ///     fingerprint,
 ///     content,
-///     Encrypt::Dh(sender_priv_key, &recipient_pub_keys)
+///     Encrypt::Dh(sender_priv_key, &recipient_pub_keys, None)
 /// ).unwrap();
-/// # if let Components::Dh(content_key) = extract_components_mut(0, &mut encrypted_content) {
+/// # if let Components::Dh(encrypted_key, _) = extract_components_mut(0, &mut encrypted_content) {
 /// #     let (decrypted_content, _) = decrypt(
 /// #         Some(&verifier),
 /// #         &encrypted_content,
-/// #         Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key),
+/// #         Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key, None),
 /// #     )
 /// #     .unwrap();
 /// #
@@ -262,13 +291,13 @@ pub enum Encrypt<'a> {
 /// let (mut encrypted_content, content_key) = encrypt(
 ///     fingerprint,
 ///     content,
-///     Encrypt::Session(session_key)
+///     Encrypt::Session(session_key, false)
 /// ).unwrap();
-/// # if let Components::Session = extract_components_mut(0, &mut encrypted_content) {
+/// # if let Components::Session(encrypted_key) = extract_components_mut(0, &mut encrypted_content) {
 /// #     let (decrypted_content, _) = decrypt(
 /// #         Some(&verifier),
 /// #         &encrypted_content,
-/// #         Decrypt::Session(session_key),
+/// #         Decrypt::Session(session_key, encrypted_key),
 /// #     )
 /// #     .unwrap();
 /// #
@@ -279,19 +308,44 @@ pub fn encrypt(
     fingerprint: [u8; 32],
     mut content: Vec<u8>,
     mode: Encrypt,
-) -> Result<(Vec<u8>, [u8; KEY_LEN]), &'static str> {
+) -> Result<(Vec<u8>, [u8; KEY_SIZE]), &'static str> {
     let nonce = XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
     let mut out = nonce.to_vec();
 
     match mode {
-        Encrypt::Session(key) => {
-            let encrypted_content =
-                encrypt_content(fingerprint, &nonce, &key.into(), &mut content)?;
-            out.extend(encrypted_content);
+        Encrypt::Session(session_key, with_key_gen) => {
+            if with_key_gen {
+                let content_key = {
+                    use chacha20poly1305::KeyInit;
+                    XChaCha20Poly1305::generate_key(&mut rand_core::OsRng)
+                };
 
-            out.push(0);
+                let mut key_cipher = {
+                    use chacha20::cipher::KeyIvInit;
+                    XChaCha20::new(&session_key.into(), &nonce)
+                };
 
-            Ok((out, key))
+                let encrypted_content =
+                    encrypt_content(fingerprint, &nonce, &content_key, &mut content)?;
+
+                let mut encrypted_key = content_key.clone();
+                key_cipher.apply_keystream(&mut encrypted_key);
+
+                out.extend(encrypted_key);
+                out.extend(encrypted_content);
+
+                out.push(5);
+
+                Ok((out, content_key.into()))
+            } else {
+                let encrypted_content =
+                    encrypt_content(fingerprint, &nonce, &session_key.into(), &mut content)?;
+                out.extend(encrypted_content);
+
+                out.push(1);
+
+                Ok((out, session_key))
+            }
         }
         Encrypt::Hmac(hash_key, key, itr) => {
             let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
@@ -309,9 +363,8 @@ pub fn encrypt(
 
             Ok((out, key.into()))
         }
-        Encrypt::Dh(priv_key, pub_keys) => {
+        Encrypt::Dh(priv_key, pub_keys, hmac_key) => {
             use chacha20poly1305::KeyInit;
-
             let key = XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
 
             #[cfg(feature = "multi-thread")]
@@ -323,7 +376,7 @@ pub fn encrypt(
                 sender.send(encrypted_content).unwrap();
             });
 
-            let (header, keys) = dh_encrypt_keys(priv_key, pub_keys, &nonce, &key);
+            let (header, keys) = dh_encrypt_keys(priv_key, pub_keys, hmac_key, &nonce, &key);
             out.extend(header);
             out.extend(keys);
 
@@ -334,7 +387,7 @@ pub fn encrypt(
 
             out.extend(encrypted_content);
 
-            out.push(2);
+            out.push(if hmac_key.is_some() { 3 } else { 2 });
 
             Ok((out, key.into()))
         }
@@ -343,9 +396,20 @@ pub fn encrypt(
 
 /// facilitates mode-specific decryption component extraction.
 pub enum Components {
-    Session,
-    Hmac(usize),
-    Dh([u8; KEY_LEN]),
+    Session(
+        /// optional encrypted key
+        Option<[u8; KEY_SIZE]>,
+    ),
+    Hmac(
+        /// iteration
+        usize,
+    ),
+    Dh(
+        /// encrypted key
+        [u8; KEY_SIZE],
+        /// shared secret was HMAC'd
+        bool,
+    ),
 }
 
 /// extract components from encrypted result.
@@ -355,16 +419,16 @@ pub enum Components {
 /// # let (fingerprint, verifier) = generate_fingerprint();
 /// # let (session_key, _) = generate_dh_keys();
 /// # let content = vec![0u8; 1024];
-/// # let (encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Session(session_key)).unwrap();
+/// # let (encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Session(session_key, false)).unwrap();
 /// #
 /// use rgp::{extract_components, Components};
 ///
 /// let (components, encrypted_content) = extract_components(0, encrypted_content);
 ///
 /// match components {
-///     Components::Session => { /* decrypt for session */ }
+///     Components::Session(encrypted_key) => { /* decrypt for session */ }
 ///     Components::Hmac(itr) => { /* decrypt for HMAC */ }
-///     Components::Dh(key) => { /* decrypt for diffie-hellman */ }
+///     Components::Dh(encrypted_key, with_hmac) => { /* decrypt for diffie-hellman */ }
 /// };
 /// ```
 #[inline(always)]
@@ -384,63 +448,97 @@ pub fn extract_components(
 /// # let (fingerprint, verifier) = generate_fingerprint();
 /// # let (session_key, _) = generate_dh_keys();
 /// # let content = vec![0u8; 1024];
-/// # let (mut encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Session(session_key)).unwrap();
+/// # let (mut encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Session(session_key, false)).unwrap();
 /// #
 /// use rgp::{extract_components_mut, Components};
 ///
 /// match extract_components_mut(0, &mut encrypted_content) {
-///     Components::Session => { /* decrypt for session */ }
+///     Components::Session(encrypted_key) => { /* decrypt for session */ }
 ///     Components::Hmac(itr) => { /* decrypt for HMAC */ }
-///     Components::Dh(key) => { /* decrypt for diffie-hellman */ }
+///     Components::Dh(encrypted_key, with_hmac) => { /* decrypt for diffie-hellman */ }
 /// };
 /// ```
 pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) -> Components {
     let mode = encrypted_content.pop().expect("at least one element");
 
     match mode {
-        2 => {
+        // Dh | Dh with HMAC
+        2 | 3 => {
             let (keys_count_size, keys_count) =
-                bytes_to_usize(&encrypted_content[NONCE_LEN..NONCE_LEN + 9]);
+                bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
 
-            let keys_start = NONCE_LEN + keys_count_size;
-            let encrypted_key_start = keys_start + (position as usize * KEY_LEN);
+            let keys_start = NONCE_SIZE + keys_count_size;
+            let encrypted_key_start = keys_start + (position as usize * KEY_SIZE);
 
-            let encrypted_content_start = keys_start + (keys_count * KEY_LEN);
+            let encrypted_content_start = keys_start + (keys_count * KEY_SIZE);
 
-            let content_key: [u8; KEY_LEN] = encrypted_content
-                [encrypted_key_start..encrypted_key_start + KEY_LEN]
+            let content_key: [u8; KEY_SIZE] = encrypted_content
+                [encrypted_key_start..encrypted_key_start + KEY_SIZE]
                 .try_into()
                 .unwrap();
 
-            encrypted_content.copy_within(encrypted_content_start.., NONCE_LEN);
+            encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
             encrypted_content
-                .truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_LEN));
+                .truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_SIZE));
 
-            Components::Dh(content_key)
+            Components::Dh(content_key, mode == 3)
         }
+        // Hmac
         1 => {
-            let (itr_size, itr) = bytes_to_usize(&encrypted_content[NONCE_LEN..NONCE_LEN + 9]);
+            let (itr_size, itr) = bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
 
-            encrypted_content.copy_within(NONCE_LEN + itr_size.., NONCE_LEN);
+            encrypted_content.copy_within(NONCE_SIZE + itr_size.., NONCE_SIZE);
             encrypted_content.truncate(encrypted_content.len() - itr_size);
 
             Components::Hmac(itr)
         }
-        _ => Components::Session,
+        // Session with key gen
+        5 => {
+            let encrypted_key: [u8; KEY_SIZE] = encrypted_content
+                [NONCE_SIZE..NONCE_SIZE + KEY_SIZE]
+                .try_into()
+                .unwrap();
+
+            encrypted_content.copy_within(NONCE_SIZE + KEY_SIZE.., NONCE_SIZE);
+            encrypted_content.truncate(encrypted_content.len() - KEY_SIZE);
+
+            Components::Session(Some(encrypted_key))
+        }
+        // Session
+        _ => Components::Session(None),
     }
 }
 
 /// encapsulates the parameters and mode for decryption.
 pub enum Decrypt {
-    /// encrypted content key, sender pub key, receiver priv key.
-    Dh([u8; KEY_LEN], [u8; KEY_LEN], [u8; KEY_LEN]),
+    /// generates shared secret to decrypt content key.
+    Dh(
+        /// encrypted content key
+        [u8; KEY_SIZE],
+        /// sender pub key
+        [u8; KEY_SIZE],
+        /// recipient priv key
+        [u8; KEY_SIZE],
+        /// HMAC key
+        Option<[u8; KEY_SIZE]>,
+    ),
 
     /// hashes the second tuple member, with the first
     /// tuple member as the hash key.
-    Hmac([u8; KEY_LEN], [u8; KEY_LEN]),
+    Hmac(
+        /// HMAC key
+        [u8; KEY_SIZE],
+        /// HMAC value
+        [u8; KEY_SIZE],
+    ),
 
     /// uses the key that is passed in without modification.
-    Session([u8; KEY_LEN]),
+    Session(
+        /// session key
+        [u8; KEY_SIZE],
+        /// optional encrypted key
+        Option<[u8; KEY_SIZE]>,
+    ),
 }
 
 /// decrypts and verifies content.
@@ -454,16 +552,16 @@ pub enum Decrypt {
 /// # let (fingerprint, verifier) = generate_fingerprint();
 /// # let content = vec![0u8; 1024];
 /// # let pub_keys = vec![receiver_pub_key];
-/// # let (mut encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Dh(sender_priv_key, &pub_keys)).unwrap();
+/// # let (mut encrypted_content, _) = encrypt(fingerprint, content.clone(), Encrypt::Dh(sender_priv_key, &pub_keys, None)).unwrap();
 /// #
 /// use rgp::{decrypt, extract_components_mut, Components, Decrypt};
 ///
 /// match extract_components_mut(0, &mut encrypted_content) {
-///     Components::Dh(key) => {
+///     Components::Dh(key, with_hmac) => {
 ///         let (decrypted_content, _) = decrypt(
 ///             Some(&verifier),
 ///             &encrypted_content,
-///             Decrypt::Dh(key, sender_pub_key, receiver_priv_key),
+///             Decrypt::Dh(key, sender_pub_key, receiver_priv_key, None),
 ///         )
 ///         .unwrap();
 /// #       assert_eq!(decrypted_content, content);
@@ -477,11 +575,11 @@ pub enum Decrypt {
 ///         .unwrap();
 /// #       assert_eq!(decrypted_content, content);
 ///     }
-///     Components::Session => {
+///     Components::Session(encrypted_key) => {
 ///         let (decrypted_content, _) = decrypt(
 ///             Some(&verifier),
 ///             &encrypted_content,
-///             Decrypt::Session(session_key),
+///             Decrypt::Session(session_key, encrypted_key),
 ///         )
 ///         .unwrap();
 /// #       assert_eq!(decrypted_content, content);
@@ -492,33 +590,51 @@ pub fn decrypt(
     verifier: Option<&[u8; 32]>,
     encrypted_content: &[u8],
     mode: Decrypt,
-) -> Result<(Vec<u8>, [u8; KEY_LEN]), &'static str> {
-    let nonce = &GenericArray::<u8, typenum::U24>::from_slice(&encrypted_content[0..NONCE_LEN]);
+) -> Result<(Vec<u8>, [u8; KEY_SIZE]), &'static str> {
+    let nonce = &GenericArray::<u8, typenum::U24>::from_slice(&encrypted_content[0..NONCE_SIZE]);
 
     let (content_key, encrypted_content): (GenericArray<u8, typenum::U32>, &[u8]) = match mode {
-        Decrypt::Session(key) => (key.into(), &encrypted_content[NONCE_LEN..]),
+        Decrypt::Session(session_key, encrypted_key) => {
+            if let Some(mut encrypted_key) = encrypted_key {
+                let mut key_cipher = {
+                    use chacha20::cipher::KeyIvInit;
+                    XChaCha20::new(&session_key.into(), nonce)
+                };
+
+                key_cipher.apply_keystream(&mut encrypted_key);
+
+                (encrypted_key.into(), &encrypted_content[NONCE_SIZE..])
+            } else {
+                (session_key.into(), &encrypted_content[NONCE_SIZE..])
+            }
+        }
         Decrypt::Hmac(hash_key, key) => {
             let key = blake2::Blake2sMac256::new_from_slice(&hash_key)
                 .unwrap()
                 .chain_update(&key)
                 .finalize_fixed();
 
-            (key, &encrypted_content[NONCE_LEN..])
+            (key, &encrypted_content[NONCE_SIZE..])
         }
-        Decrypt::Dh(mut content_key, pub_key, priv_key) => {
+        Decrypt::Dh(mut encrypted_key, pub_key, priv_key, hmac_key) => {
             let priv_key = StaticSecret::from(priv_key);
-            let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
+            let mut key = GenericArray::from(priv_key.diffie_hellman(&pub_key.into()).to_bytes());
+
+            if let Some(hmac_key) = hmac_key {
+                key = blake2::Blake2sMac256::new_from_slice(&hmac_key)
+                    .unwrap()
+                    .chain_update(&key)
+                    .finalize_fixed()
+            }
 
             let mut key_cipher = {
                 use chacha20::cipher::KeyIvInit;
-                XChaCha20::new(&shared_secret.into(), nonce)
+                XChaCha20::new(&key, nonce)
             };
 
-            key_cipher.apply_keystream(&mut content_key);
+            key_cipher.apply_keystream(&mut encrypted_key);
 
-            let content_key = GenericArray::from(content_key);
-
-            (content_key, &encrypted_content[NONCE_LEN..])
+            (encrypted_key.into(), &encrypted_content[NONCE_SIZE..])
         }
     };
 
@@ -529,11 +645,11 @@ pub fn decrypt(
 
     match content_cipher.decrypt(nonce, encrypted_content) {
         Ok(mut content) => {
-            let signature = content.split_off(content.len() - SIGNATURE_LEN);
+            let signature = content.split_off(content.len() - SIGNATURE_SIZE);
 
             match verifier {
                 Some(verifier) => {
-                    let signature_as_bytes: [u8; SIGNATURE_LEN] = match signature.try_into() {
+                    let signature_as_bytes: [u8; SIGNATURE_SIZE] = match signature.try_into() {
                         Ok(v) => v,
                         Err(_) => return Err("failed to convert signature to bytes"),
                     };
