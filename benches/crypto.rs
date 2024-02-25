@@ -7,9 +7,12 @@ This file may not be copied, modified, or distributed except according to those 
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
+use std::fs::{remove_file, File, OpenOptions};
+use std::io::Write;
+
 use rgp::{
     decrypt, encrypt, extract_components, extract_components_mut, generate_dh_keys,
-    generate_fingerprint, Components, Decrypt, Encrypt,
+    generate_fingerprint, generate_kem_keys, Components, Decrypt, Encrypt, KemKeyReader,
 };
 
 fn session_encrypt_benchmark(c: &mut Criterion) {
@@ -86,6 +89,70 @@ fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
             .unwrap();
         })
     });
+}
+
+fn kem_encrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = generate_fingerprint();
+
+    let (_, recipient_pub_key) = generate_kem_keys();
+
+    let mut pub_keys_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open("pub_keys")
+        .unwrap();
+
+    pub_keys_file.write_all(&recipient_pub_key).unwrap();
+    pub_keys_file.flush().unwrap();
+
+    let content = vec![0u8; 5_000_000];
+
+    c.bench_function("kem_encrypt", |b| {
+        b.iter(|| {
+            encrypt(
+                fingerprint,
+                content.clone(),
+                Encrypt::Kem(KemKeyReader::new(File::open("pub_keys").unwrap())),
+            )
+            .unwrap();
+        })
+    });
+
+    remove_file("pub_keys").unwrap();
+}
+
+fn kem_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
+    let (fingerprint, _) = generate_fingerprint();
+
+    let (_, recipient_pub_key) = generate_kem_keys();
+
+    let mut pub_keys_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open("pub_keys")
+        .unwrap();
+
+    for _ in 0..10_000 {
+        pub_keys_file.write_all(&recipient_pub_key).unwrap();
+        pub_keys_file.flush().unwrap();
+    }
+
+    let content = vec![0u8; 5_000_000];
+
+    c.bench_function("kem_encrypt_multi_recipient", |b| {
+        b.iter(|| {
+            encrypt(
+                fingerprint,
+                content.clone(),
+                Encrypt::Kem(KemKeyReader::new(File::open("pub_keys").unwrap())),
+            )
+            .unwrap();
+        })
+    });
+
+    remove_file("pub_keys").unwrap();
 }
 
 fn extract_components_benchmark(c: &mut Criterion) {
@@ -219,17 +286,63 @@ fn dh_decrypt_benchmark(c: &mut Criterion) {
     });
 }
 
+fn kem_decrypt_benchmark(c: &mut Criterion) {
+    let (fingerprint, verifier) = generate_fingerprint();
+
+    let (recipient_secret_key, recipient_pub_key) = generate_kem_keys();
+
+    let mut pub_keys_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open("pub_keys")
+        .unwrap();
+
+    pub_keys_file.write_all(&recipient_pub_key).unwrap();
+    pub_keys_file.flush().unwrap();
+
+    let content = vec![0u8; 5_000_000];
+
+    let (mut encrypted_content, _) = encrypt(
+        fingerprint,
+        content.clone(),
+        Encrypt::Kem(KemKeyReader::new(File::open("pub_keys").unwrap())),
+    )
+    .unwrap();
+
+    let (encrypted_key, ciphertext) = match extract_components_mut(0, &mut encrypted_content) {
+        Components::Kem(encrypted_key, ciphertext, _) => (encrypted_key, ciphertext),
+        _ => unreachable!(),
+    };
+
+    c.bench_function("kem_decrypt", |b| {
+        b.iter(|| {
+            decrypt(
+                Some(&verifier),
+                &encrypted_content,
+                Decrypt::Kem(encrypted_key, ciphertext, recipient_secret_key, None),
+            )
+            .unwrap();
+        })
+    });
+
+    remove_file("pub_keys").unwrap();
+}
+
 criterion_group!(
     benches,
     session_encrypt_benchmark,
     hmac_encrypt_benchmark,
     dh_encrypt_benchmark,
     dh_encrypt_multi_recipient_benchmark,
+    kem_encrypt_benchmark,
+    kem_encrypt_multi_recipient_benchmark,
     extract_components_benchmark,
     extract_components_mut_benchmark,
     session_decrypt_benchmark,
     hmac_decrypt_benchmark,
     dh_decrypt_benchmark,
+    kem_decrypt_benchmark,
 );
 
 criterion_main!(benches);

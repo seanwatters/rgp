@@ -5,9 +5,9 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use std::fs::{File, OpenOptions};
+use std::error::Error;
+use std::fs::{remove_file, File, OpenOptions};
 use std::io::Write;
-use std::{error::Error, fs::remove_file};
 
 use rgp::{
     decrypt, encrypt, extract_components_mut, generate_dh_keys, generate_fingerprint,
