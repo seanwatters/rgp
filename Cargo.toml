@@ -14,7 +14,7 @@ license = "MIT"
 name = "rgp"
 readme = "README.md"
 repository = "https://github.com/seanwatters/rgp"
-version = "0.3.0-alpha.3"
+version = "0.3.0-alpha.4"
 
 [dependencies]
 blake2 = "0.10.6"
