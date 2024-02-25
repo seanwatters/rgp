@@ -98,10 +98,10 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 
 - nonce = 24 bytes
 - keys count
-    IF 0..=127
+    - IF 0..=127
         - is single byte = 1 bit (set)
         - count = 7 bits
-    ELSE
+    - ELSE
         - is single byte = 1 bit (unset)
         - int size = 2 bits
         - count = 8-64 bits
@@ -126,10 +126,13 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 
 - nonce = 24 bytes
 - iteration
-    - int size = 2 bits
-    - iteration
-        - numbers 0-63 = 6 bits
-        - numbers >63 = 1-8 bytes (big endian int)
+    - IF 0..=127
+        - is single byte = 1 bit (set)
+        - iteration = 7 bits
+    - ELSE
+        - is single byte = 1 bit (unset)
+        - int size = 2 bits
+        - iteration = 8-64 bits
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
@@ -183,10 +186,13 @@ Classic McEliece was chosen despite its larger key sizes because it has a much s
 
 - nonce = 24 bytes
 - keys count
-    - int size = 2 bits
-    - count
-        - numbers 0-63 = 6 bits
-        - numbers >63 = 1-8 bytes (big endian int)
+    - IF 0..=127
+        - is single byte = 1 bit (set)
+        - count = 7 bits
+    - ELSE
+        - is single byte = 1 bit (unset)
+        - int size = 2 bits
+        - count = 8-64 bits
 - encrypted copies of content key + ciphertext = pub_keys.len() * (32 bytes + 96 bytes)
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content)
