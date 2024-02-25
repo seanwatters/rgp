@@ -162,7 +162,7 @@ This mode can be used to manage the initial key exchange/ratchet seeding for `Se
 
 This mode depends on the [classic-mceliece-rust](https://crates.io/crates/classic-mceliece-rust) crate. It is recommended that the `Kem` with Diffie-Hellman hybrid, option be used until the underlying PQ crypto has been sufficiently validated.
 
-Classic McEliece was chosen despite its larger key sizes because it has a much smaller ciphertext, which is included for each recipient on each message. Given that for this mode the size of the actual output is only increased by 96 bytes per-recipient (as compared to `Dh` mode), it is possible that `Kem` could be optimized to read from a stream of public keys so that they don't all have to fit in memory at one time, but for now this "smaller batches" limitation feels reasonable as the encapsulate/decapsulate operations also come with a fairly high computational overhead.
+Classic McEliece was chosen despite its larger key sizes because it has a much smaller ciphertext, which is included for each recipient on each message.
 
 #### Steps
 
