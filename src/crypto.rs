@@ -10,14 +10,24 @@ use rayon::prelude::*;
 #[cfg(feature = "multi-thread")]
 use std::sync::mpsc::channel;
 
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+};
+
 use blake2::digest::{FixedOutput, Mac};
 use chacha20::{
     cipher::{generic_array::GenericArray, typenum, StreamCipher},
     XChaCha20,
 };
 use chacha20poly1305::{aead::Aead, AeadCore, XChaCha20Poly1305};
+use classic_mceliece_rust::{
+    decapsulate, encapsulate, keypair as kem_keypair, Ciphertext, PublicKey as KemPublicKey,
+    SecretKey as KemSecretKey, CRYPTO_CIPHERTEXTBYTES as KEM_CIPHERTEXT_SIZE,
+    CRYPTO_PUBLICKEYBYTES as KEM_PUB_KEY_SIZE, CRYPTO_SECRETKEYBYTES as KEM_SECRET_KEY_SIZE,
+};
 use ed25519_dalek::{Signer, Verifier};
-use x25519_dalek::{PublicKey, StaticSecret};
+use x25519_dalek::StaticSecret;
 
 const NONCE_SIZE: usize = 24;
 const KEY_SIZE: usize = 32;
@@ -81,6 +91,27 @@ pub fn generate_dh_keys() -> ([u8; 32], [u8; 32]) {
     let pub_key = x25519_dalek::PublicKey::from(&priv_key);
 
     (*priv_key.as_bytes(), *pub_key.as_bytes())
+}
+
+/// generates `Kem` pub/priv key pairs.
+///
+///```rust
+/// use rgp::generate_kem_keys;
+///
+/// let (secret_key, pub_key) = generate_kem_keys();
+///
+/// assert_eq!(secret_key.len(), 6492);
+/// assert_eq!(pub_key.len(), 261120);
+///```
+pub fn generate_kem_keys() -> ([u8; KEM_SECRET_KEY_SIZE], [u8; KEM_PUB_KEY_SIZE]) {
+    let mut rng = rand::thread_rng();
+
+    let mut public_key_buf = [0u8; KEM_PUB_KEY_SIZE];
+    let mut secret_key_buf = [0u8; KEM_SECRET_KEY_SIZE];
+
+    let (pub_key, secret_key) = kem_keypair(&mut public_key_buf, &mut secret_key_buf, &mut rng);
+
+    (*secret_key.as_array(), *pub_key.as_array())
 }
 
 #[inline(always)]
@@ -174,20 +205,16 @@ fn dh_encrypt_keys(
     let chunks = keys.chunks_mut(KEY_SIZE);
 
     chunks.enumerate().for_each(|(i, chunk)| {
-        let mut shared_secret = GenericArray::from(
-            priv_key
-                .diffie_hellman(&PublicKey::from(pub_keys[i]))
-                .to_bytes(),
-        );
+        let mut key = GenericArray::from(priv_key.diffie_hellman(&pub_keys[i].into()).to_bytes());
 
         if let Some(hmac_key) = hmac_key {
-            shared_secret = blake2::Blake2sMac256::new_from_slice(&hmac_key)
+            key = blake2::Blake2sMac256::new_from_slice(&hmac_key)
                 .unwrap()
-                .chain_update(&shared_secret)
+                .chain_update(&key)
                 .finalize_fixed();
         }
 
-        let mut key_cipher = XChaCha20::new(&shared_secret, nonce);
+        let mut key_cipher = XChaCha20::new(&key, nonce);
 
         let mut content_key = content_key.clone();
         key_cipher.apply_keystream(&mut content_key);
@@ -198,8 +225,118 @@ fn dh_encrypt_keys(
     (header, keys)
 }
 
+/// for reading a large volume of McEliece public keys
+pub struct KemKeyReader<R: Read> {
+    pub reader: BufReader<R>,
+
+    /// for Kem + Dh hybrid
+    pub dh_priv_key: Option<[u8; KEY_SIZE]>,
+}
+
+impl<R: Read> KemKeyReader<R> {
+    /// public key reader with a buffer size of 261120.
+    ///
+    /// for files that contain only McEliece public keys all in one line.
+    pub fn new(source: R) -> Self {
+        KemKeyReader {
+            reader: BufReader::with_capacity(KEM_PUB_KEY_SIZE, source),
+            dh_priv_key: None,
+        }
+    }
+
+    /// public key reader with a buffer size of 261120 + 32.
+    ///
+    /// for files that contain McEliece public paired with their
+    /// Diffie-Hellman counterparts (i.e Vec<...[u8; ...mc_pub, ...dh_pub]>)
+    pub fn new_dh_hybrid(dh_priv_key: [u8; KEY_SIZE], source: R) -> Self {
+        KemKeyReader {
+            reader: BufReader::with_capacity(KEM_PUB_KEY_SIZE + KEY_SIZE, source),
+            dh_priv_key: Some(dh_priv_key),
+        }
+    }
+}
+
+#[inline]
+fn kem_encrypt_keys<R: Read>(
+    key_reader: &mut KemKeyReader<R>,
+    nonce: &GenericArray<u8, typenum::U24>,
+    content_key: &GenericArray<u8, typenum::U32>,
+) -> (Vec<u8>, Vec<u8>) {
+    use chacha20::cipher::KeyIvInit;
+
+    let mut rng = rand::thread_rng();
+
+    let mut key_pos = 0;
+    let mut out = vec![];
+
+    // Kem + Dh hybrid
+    if let Some(dh_priv_key) = key_reader.dh_priv_key {
+        let dh_priv_key = StaticSecret::from(dh_priv_key);
+
+        let mut buf = [0u8; KEM_PUB_KEY_SIZE + KEY_SIZE];
+
+        while let Ok(_) = key_reader.reader.read_exact(&mut buf) {
+            let kem_pub_key = buf[0..KEM_PUB_KEY_SIZE].try_into().unwrap();
+            let kem_pub_key = KemPublicKey::from(&kem_pub_key);
+
+            let mut kem_shared_secret_buf = [0u8; KEY_SIZE];
+            let (kem_ciphertext, kem_shared_secret) =
+                encapsulate(&kem_pub_key, &mut kem_shared_secret_buf, &mut rng);
+
+            let mut key = GenericArray::from(*kem_shared_secret.as_array());
+
+            let dh_pub_key: [u8; KEY_SIZE] = buf[KEM_PUB_KEY_SIZE..KEY_SIZE].try_into().unwrap();
+            let dh_shared_secret = dh_priv_key.diffie_hellman(&dh_pub_key.into()).to_bytes();
+
+            // HMAC the KEM shared secret with the Diffie-Hellman shared secret
+            key = blake2::Blake2sMac256::new_from_slice(&dh_shared_secret)
+                .unwrap()
+                .chain_update(&key)
+                .finalize_fixed();
+
+            let mut key_cipher = XChaCha20::new(&key, nonce);
+
+            let mut content_key = content_key.clone();
+            key_cipher.apply_keystream(&mut content_key);
+
+            out.extend(content_key);
+            out.extend(kem_ciphertext.as_array());
+
+            key_pos += 1;
+        }
+    } else {
+        // raw Kem
+
+        let mut buf = [0u8; KEM_PUB_KEY_SIZE];
+
+        while let Ok(_) = key_reader.reader.read_exact(&mut buf) {
+            let kem_pub_key = KemPublicKey::from(&buf);
+
+            let mut kem_shared_secret_buf = [0u8; KEY_SIZE];
+            let (kem_ciphertext, kem_shared_secret) =
+                encapsulate(&kem_pub_key, &mut kem_shared_secret_buf, &mut rng);
+
+            let key = GenericArray::from(*kem_shared_secret.as_array());
+
+            let mut key_cipher = XChaCha20::new(&key, nonce);
+
+            let mut content_key = content_key.clone();
+            key_cipher.apply_keystream(&mut content_key);
+
+            out.extend(content_key);
+            out.extend(kem_ciphertext.as_array());
+
+            key_pos += 1;
+        }
+    }
+
+    let header = usize_to_bytes(key_pos);
+
+    (header, out)
+}
+
 /// encapsulates the parameters and mode for encryption.
-pub enum Encrypt<'a> {
+pub enum Encrypt<'a, R: Read = File> {
     /// generates random content key and encrypts for all
     /// recipients with their respective Diffie-Hellman shared secret.
     Dh(
@@ -228,6 +365,13 @@ pub enum Encrypt<'a> {
         [u8; KEY_SIZE],
         /// with key gen
         bool,
+    ),
+
+    /// uses key encapsulation to encrypt a copy of the
+    /// a one-time generated content key for each recipient.
+    Kem(
+        /// recipient KEM public keys reader
+        KemKeyReader<R>,
     ),
 }
 
@@ -260,8 +404,7 @@ pub enum Encrypt<'a> {
 /// #         Some(&verifier),
 /// #         &encrypted_content,
 /// #         Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key, None),
-/// #     )
-/// #     .unwrap();
+/// #     ).unwrap();
 /// #
 /// #     assert_eq!(decrypted_content, content_clone);
 /// # };
@@ -280,8 +423,7 @@ pub enum Encrypt<'a> {
 /// #         Some(&verifier),
 /// #         &encrypted_content,
 /// #         Decrypt::Hmac(hmac_key, hmac_value),
-/// #     )
-/// #     .unwrap();
+/// #     ).unwrap();
 /// #
 /// #     assert_eq!(decrypted_content, content_clone);
 /// # };
@@ -298,8 +440,7 @@ pub enum Encrypt<'a> {
 /// #         Some(&verifier),
 /// #         &encrypted_content,
 /// #         Decrypt::Session(session_key, encrypted_key),
-/// #     )
-/// #     .unwrap();
+/// #     ).unwrap();
 /// #
 /// #     assert_eq!(decrypted_content, content_clone);
 /// # };
@@ -334,7 +475,7 @@ pub fn encrypt(
                 out.extend(encrypted_key);
                 out.extend(encrypted_content);
 
-                out.push(5);
+                out.push(3);
 
                 Ok((out, content_key.into()))
             } else {
@@ -387,7 +528,39 @@ pub fn encrypt(
 
             out.extend(encrypted_content);
 
-            out.push(if hmac_key.is_some() { 3 } else { 2 });
+            out.push(if hmac_key.is_some() { 4 } else { 2 });
+
+            Ok((out, key.into()))
+        }
+        Encrypt::Kem(mut key_reader) => {
+            use chacha20poly1305::KeyInit;
+            let key = XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
+
+            #[cfg(feature = "multi-thread")]
+            let (sender, receiver) = channel();
+
+            #[cfg(feature = "multi-thread")]
+            rayon::spawn(move || {
+                let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content);
+                sender.send(encrypted_content).unwrap();
+            });
+
+            let (header, keys) = kem_encrypt_keys(&mut key_reader, &nonce, &key);
+            out.extend(header);
+            out.extend(keys);
+
+            #[cfg(feature = "multi-thread")]
+            let encrypted_content = receiver.recv().unwrap()?;
+            #[cfg(not(feature = "multi-thread"))]
+            let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content)?;
+
+            out.extend(encrypted_content);
+
+            out.push(if key_reader.dh_priv_key.is_some() {
+                6
+            } else {
+                5
+            });
 
             Ok((out, key.into()))
         }
@@ -408,7 +581,15 @@ pub enum Components {
     Dh(
         /// encrypted key
         [u8; KEY_SIZE],
-        /// shared secret was HMAC'd
+        /// whether it was used with HMAC
+        bool,
+    ),
+    Kem(
+        /// encrypted key
+        [u8; KEY_SIZE],
+        /// KEM ciphertext
+        [u8; KEM_CIPHERTEXT_SIZE],
+        /// whether it was Dh hybrid
         bool,
     ),
 }
@@ -430,6 +611,7 @@ pub enum Components {
 ///     Components::Session(encrypted_key) => { /* decrypt for session */ }
 ///     Components::Hmac(itr) => { /* decrypt for HMAC */ }
 ///     Components::Dh(encrypted_key, with_hmac) => { /* decrypt for diffie-hellman */ }
+///     Components::Kem(encrypted_key, ciphertext, is_hybrid) => { /* decrypt for KEM */ }
 /// };
 /// ```
 #[inline(always)]
@@ -457,33 +639,13 @@ pub fn extract_components(
 ///     Components::Session(encrypted_key) => { /* decrypt for session */ }
 ///     Components::Hmac(itr) => { /* decrypt for HMAC */ }
 ///     Components::Dh(encrypted_key, with_hmac) => { /* decrypt for diffie-hellman */ }
+///     Components::Kem(encrypted_key, ciphertext, is_hybrid) => { /* decrypt for KEM */ }
 /// };
 /// ```
 pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) -> Components {
     let mode = encrypted_content.pop().expect("at least one element");
 
     match mode {
-        // Dh | Dh with HMAC
-        2 | 3 => {
-            let (keys_count_size, keys_count) =
-                bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
-
-            let keys_start = NONCE_SIZE + keys_count_size;
-            let encrypted_key_start = keys_start + (position as usize * KEY_SIZE);
-
-            let encrypted_content_start = keys_start + (keys_count * KEY_SIZE);
-
-            let content_key: [u8; KEY_SIZE] = encrypted_content
-                [encrypted_key_start..encrypted_key_start + KEY_SIZE]
-                .try_into()
-                .unwrap();
-
-            encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
-            encrypted_content
-                .truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_SIZE));
-
-            Components::Dh(content_key, mode == 3)
-        }
         // Hmac
         1 => {
             let (itr_size, itr) = bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
@@ -494,7 +656,7 @@ pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) 
             Components::Hmac(itr)
         }
         // Session with key gen
-        5 => {
+        3 => {
             let encrypted_key: [u8; KEY_SIZE] = encrypted_content
                 [NONCE_SIZE..NONCE_SIZE + KEY_SIZE]
                 .try_into()
@@ -504,6 +666,59 @@ pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) 
             encrypted_content.truncate(encrypted_content.len() - KEY_SIZE);
 
             Components::Session(Some(encrypted_key))
+        }
+        // Dh | Dh with HMAC
+        2 | 4 => {
+            let (keys_count_size, keys_count) =
+                bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
+
+            let keys_start = NONCE_SIZE + keys_count_size;
+            let encrypted_key_start = keys_start + (position as usize * KEY_SIZE);
+
+            let content_key: [u8; KEY_SIZE] = encrypted_content
+                [encrypted_key_start..encrypted_key_start + KEY_SIZE]
+                .try_into()
+                .unwrap();
+
+            let encrypted_content_start = keys_start + (keys_count * KEY_SIZE);
+
+            encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
+            encrypted_content
+                .truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_SIZE));
+
+            Components::Dh(content_key, mode == 3)
+        }
+        // Kem
+        5 | 6 => {
+            let (keys_count_size, keys_count) =
+                bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
+
+            let keys_start = NONCE_SIZE + keys_count_size;
+            let encrypted_key_start =
+                keys_start + (position as usize * (KEY_SIZE + KEM_CIPHERTEXT_SIZE));
+
+            let content_key: [u8; KEY_SIZE] = encrypted_content
+                [encrypted_key_start..encrypted_key_start + KEY_SIZE]
+                .try_into()
+                .unwrap();
+
+            let ciphertext: [u8; KEM_CIPHERTEXT_SIZE] = encrypted_content[encrypted_key_start
+                + KEY_SIZE
+                ..encrypted_key_start + (KEY_SIZE + KEM_CIPHERTEXT_SIZE)]
+                .try_into()
+                .unwrap();
+
+            let encrypted_content_start =
+                keys_start + (keys_count * (KEY_SIZE + KEM_CIPHERTEXT_SIZE));
+
+            encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
+            encrypted_content.truncate(
+                encrypted_content.len()
+                    - keys_count_size
+                    - (keys_count * (KEY_SIZE + KEM_CIPHERTEXT_SIZE)),
+            );
+
+            Components::Kem(content_key, ciphertext, mode == 6)
         }
         // Session
         _ => Components::Session(None),
@@ -540,16 +755,29 @@ pub enum Decrypt {
         /// optional encrypted key
         Option<[u8; KEY_SIZE]>,
     ),
+
+    /// decapsulate ciphertext to decrypt content key.
+    Kem(
+        /// encrypted key
+        [u8; KEY_SIZE],
+        /// KEM ciphertext
+        [u8; KEM_CIPHERTEXT_SIZE],
+        /// KEM secret key
+        [u8; KEM_SECRET_KEY_SIZE],
+        /// optional Dh sender pub key, and recipient priv key
+        Option<([u8; KEY_SIZE], [u8; KEY_SIZE])>,
+    ),
 }
 
 /// decrypts and verifies content.
 ///
 /// ```rust
-/// # use rgp::{encrypt, generate_dh_keys, generate_fingerprint, Encrypt};
+/// # use rgp::{encrypt, generate_dh_keys, generate_fingerprint, generate_kem_keys, Encrypt};
 /// # let (sender_priv_key, sender_pub_key) = generate_dh_keys();
 /// # let (receiver_priv_key, receiver_pub_key) = generate_dh_keys();
 /// # let (hmac_key, hmac_value) = generate_dh_keys();
 /// # let (session_key, _) = generate_dh_keys();
+/// # let (kem_secret_key, kem_pub_key) = generate_kem_keys();
 /// # let (fingerprint, verifier) = generate_fingerprint();
 /// # let content = vec![0u8; 1024];
 /// # let pub_keys = vec![receiver_pub_key];
@@ -558,13 +786,12 @@ pub enum Decrypt {
 /// use rgp::{decrypt, extract_components_mut, Components, Decrypt};
 ///
 /// match extract_components_mut(0, &mut encrypted_content) {
-///     Components::Dh(key, with_hmac) => {
+///     Components::Dh(encrypted_key, with_hmac) => {
 ///         let (decrypted_content, _) = decrypt(
 ///             Some(&verifier),
 ///             &encrypted_content,
-///             Decrypt::Dh(key, sender_pub_key, receiver_priv_key, None),
-///         )
-///         .unwrap();
+///             Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key, None),
+///         ).unwrap();
 /// #       assert_eq!(decrypted_content, content);
 ///     }
 ///     Components::Hmac(itr) => {
@@ -572,8 +799,7 @@ pub enum Decrypt {
 ///             Some(&verifier),
 ///             &encrypted_content,
 ///             Decrypt::Hmac(hmac_key, hmac_value),
-///         )
-///         .unwrap();
+///         ).unwrap();
 /// #       assert_eq!(decrypted_content, content);
 ///     }
 ///     Components::Session(encrypted_key) => {
@@ -581,8 +807,15 @@ pub enum Decrypt {
 ///             Some(&verifier),
 ///             &encrypted_content,
 ///             Decrypt::Session(session_key, encrypted_key),
-///         )
-///         .unwrap();
+///         ).unwrap();
+/// #       assert_eq!(decrypted_content, content);
+///     }
+///     Components::Kem(encrypted_key, ciphertext, is_hybrid) => {
+///         let (decrypted_content, _) = decrypt(
+///             Some(&verifier),
+///             &encrypted_content,
+///             Decrypt::Kem(encrypted_key, ciphertext, kem_secret_key, None),
+///         ).unwrap();
 /// #       assert_eq!(decrypted_content, content);
 ///     }
 /// };
@@ -626,6 +859,35 @@ pub fn decrypt(
                     .unwrap()
                     .chain_update(&key)
                     .finalize_fixed()
+            }
+
+            let mut key_cipher = {
+                use chacha20::cipher::KeyIvInit;
+                XChaCha20::new(&key, nonce)
+            };
+
+            key_cipher.apply_keystream(&mut encrypted_key);
+
+            (encrypted_key.into(), &encrypted_content[NONCE_SIZE..])
+        }
+        Decrypt::Kem(mut encrypted_key, ciphertext, mut secret_key, dh_components) => {
+            let secret_key = KemSecretKey::from(&mut secret_key);
+            let ciphertext = Ciphertext::from(ciphertext);
+
+            let mut kem_shared_secret_buf = [0u8; KEY_SIZE];
+            let mut key = GenericArray::from(
+                *decapsulate(&ciphertext, &secret_key, &mut kem_shared_secret_buf).as_array(),
+            );
+
+            if let Some((pub_key, priv_key)) = dh_components {
+                let priv_key = StaticSecret::from(priv_key);
+                let shared_secret = priv_key.diffie_hellman(&pub_key.into()).to_bytes();
+
+                // HMAC the KEM shared secret with the Diffie-Hellman shared secret
+                key = blake2::Blake2sMac256::new_from_slice(&shared_secret)
+                    .unwrap()
+                    .chain_update(&key)
+                    .finalize_fixed();
             }
 
             let mut key_cipher = {

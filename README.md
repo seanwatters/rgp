@@ -106,7 +106,7 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 2 for `Dh` or 3 for `Dh` with HMAC)
+- mode = 1 byte (set to 2 for `Dh` or 4 for `Dh` with HMAC)
 
 ### HMAC
 
@@ -152,7 +152,7 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 0 for `Session` or 5 for `Session` with key gen)
+- mode = 1 byte (set to 0 for `Session` or 3 for `Session` with key gen)
 
 ### KEM
 
@@ -195,7 +195,7 @@ Classic McEliece was chosen despite its larger key sizes because it has a much s
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content)
 - Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 4 for `Kem`)
+- mode = 1 byte (set to 5 for `Kem` or 6 for `Kem` with Diffie-Hellman)
 
 ## Performance
 
@@ -205,7 +205,7 @@ All benchmarks for multi-recipient `Dh` payloads are for **10,000** recipients, 
 
 ## Disable Multi-threading
 
-The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](https://crates.io/crates/rayon) crate. Multi-threading is currently only used in the `encrypt` function when using `Dh` mode, but can be disabled by setting `default-features` to `false`.
+The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](https://crates.io/crates/rayon) crate. Multi-threading is currently only used in the `encrypt` function when using `Dh` or `Kem` modes to encrypt keys and content in parallel, but can be disabled by setting `default-features` to `false`.
 
 ```toml
 [dependencies]
