@@ -93,19 +93,19 @@ fn usize_to_bytes(val: usize) -> (usize, [u8; 9]) {
         (1, out)
     } else {
         match val {
-            128..=256 => {
+            128..=255 => {
                 out[0] = 0 << 2;
                 out[1] = val as u8;
 
                 (2, out)
             }
-            257..=65_535 => {
+            256..=65_534 => {
                 out[0] = 1 << 2;
                 out[1..3].copy_from_slice(&(val as u16).to_be_bytes());
 
                 (3, out)
             }
-            65_536..=4_294_967_295 => {
+            65_535..=4_294_967_294 => {
                 out[0] = 2 << 2;
                 out[1..5].copy_from_slice(&(val as u32).to_be_bytes());
 
