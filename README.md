@@ -74,7 +74,7 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 
 - Blake2s256 for HMAC
 - Ed25519 for signatures
-- mceliece348864 for KEM
+- mceliece348864f for KEM
 - X25519 for Diffie-Hellman
 - XChaCha20 for content keys
 - XChaCha20Poly1305 for content
