@@ -84,48 +84,63 @@ pub fn generate_dh_keys() -> ([u8; 32], [u8; 32]) {
 }
 
 #[inline(always)]
-fn usize_to_bytes(num: usize) -> Vec<u8> {
-    match num {
-        0..=63 => vec![(0 << 6) | num as u8],
-        64..=318 => vec![((0 << 6) | 63), (num - 63) as u8],
-        319..=65_598 => {
-            let mut h = vec![(1 << 6) | 63];
-            h.extend_from_slice(&((num - 63) as u16).to_be_bytes());
-            h
-        }
-        65_599..=4_294_967_358 => {
-            let mut h = vec![(2 << 6) | 63];
-            h.extend_from_slice(&((num - 63) as u32).to_be_bytes());
-            h
-        }
-        _ => {
-            let mut h = vec![(3 << 6) | 63];
-            h.extend_from_slice(&((num - 63) as u64).to_be_bytes());
-            h
+fn usize_to_bytes(val: usize) -> (usize, [u8; 9]) {
+    let mut out = [0u8; 9];
+
+    if val < 128 {
+        out[0] = ((val << 1) | 1) as u8;
+
+        (1, out)
+    } else {
+        match val {
+            128..=256 => {
+                out[0] = 0 << 2;
+                out[1] = val as u8;
+
+                (2, out)
+            }
+            257..=65_535 => {
+                out[0] = 1 << 2;
+                out[1..3].copy_from_slice(&(val as u16).to_be_bytes());
+
+                (3, out)
+            }
+            65_536..=4_294_967_295 => {
+                out[0] = 2 << 2;
+                out[1..5].copy_from_slice(&(val as u32).to_be_bytes());
+
+                (5, out)
+            }
+            _ => {
+                out[0] = 3 << 2;
+                out[1..9].copy_from_slice(&(val as u64).to_be_bytes());
+
+                (9, out)
+            }
         }
     }
 }
 
 #[inline(always)]
 fn bytes_to_usize(bytes: &[u8]) -> (usize, usize) {
-    let num_size = bytes[0];
+    let first_byte = bytes[0];
 
-    if num_size < 64 {
-        (1, num_size as usize)
+    if (first_byte & 0b00000001) != 0 {
+        (1, (first_byte >> 1) as usize)
     } else {
-        match (num_size >> 6) & 0b11 {
-            0 => (2, bytes[1] as usize + 63),
+        match (first_byte >> 2) & 0b00000011 {
+            0 => (2, bytes[1] as usize),
             1 => (
                 3,
-                u16::from_be_bytes(bytes[1..3].try_into().unwrap()) as usize + 63,
+                u16::from_be_bytes(bytes[1..3].try_into().unwrap()) as usize,
             ),
             2 => (
                 5,
-                u32::from_be_bytes(bytes[1..5].try_into().unwrap()) as usize + 63,
+                u32::from_be_bytes(bytes[1..5].try_into().unwrap()) as usize,
             ),
             3 => (
                 9,
-                u64::from_be_bytes(bytes[1..9].try_into().unwrap()) as usize + 63,
+                u64::from_be_bytes(bytes[1..9].try_into().unwrap()) as usize,
             ),
             _ => unreachable!(),
         }
@@ -157,7 +172,7 @@ fn dh_encrypt_keys(
     pub_keys: &Vec<[u8; KEY_LEN]>,
     nonce: &GenericArray<u8, typenum::U24>,
     content_key: &GenericArray<u8, typenum::U32>,
-) -> (Vec<u8>, Vec<u8>) {
+) -> ((usize, [u8; 9]), Vec<u8>) {
     use chacha20::cipher::KeyIvInit;
 
     let keys_count = pub_keys.len();
@@ -299,8 +314,8 @@ pub fn encrypt(
                 .chain_update(&key)
                 .finalize_fixed();
 
-            let itr_as_bytes = usize_to_bytes(itr);
-            out.extend(itr_as_bytes);
+            let (size, bytes) = usize_to_bytes(itr);
+            out.extend_from_slice(&bytes[..size]);
 
             let encrypted_content = encrypt_content(fingerprint, &nonce, &key, &mut content)?;
             out.extend(encrypted_content);
@@ -323,8 +338,8 @@ pub fn encrypt(
                 sender.send(encrypted_content).unwrap();
             });
 
-            let (header, keys) = dh_encrypt_keys(priv_key, pub_keys, &nonce, &key);
-            out.extend(header);
+            let ((size, bytes), keys) = dh_encrypt_keys(priv_key, pub_keys, &nonce, &key);
+            out.extend_from_slice(&bytes[..size]);
             out.extend(keys);
 
             #[cfg(feature = "multi-thread")]
