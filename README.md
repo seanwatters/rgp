@@ -160,14 +160,7 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 
 This mode can be used to manage the initial key exchange/ratchet seeding for `Session` and `Hmac` as well as seed an HMAC key for usage with `Dh` mode.
 
-This mode depends on the [classic-mceliece-rust](https://crates.io/crates/classic-mceliece-rust) crate and requires the `"pq"` feature to be enabled. It is also recommended that the `Kem` with Diffie-Hellman hybrid, option be used until the underlying PQ crypto has been sufficiently validated.
-
-```toml
-[dependencies]
-rgp = { version = "x.x.x", features = ["pq"] }
-```
-
-NOTE: given the [size](https://classic.mceliece.org/impl.html) of Classic McEliece public keys it is impractical in most cases to hold thousands of recipients keys in memory at one time, so the expectation would be that this mode be used in smaller batches to share seed keys when new subscribers are admitted to an interaction. From that point `Dh` with HMAC could be a more suitable hybrid option for continued quantum-resistent public key ratcheting.
+This mode depends on the [classic-mceliece-rust](https://crates.io/crates/classic-mceliece-rust) crate. It is recommended that the `Kem` with Diffie-Hellman hybrid, option be used until the underlying PQ crypto has been sufficiently validated.
 
 Classic McEliece was chosen despite its larger key sizes because it has a much smaller ciphertext, which is included for each recipient on each message. Given that for this mode the size of the actual output is only increased by 96 bytes per-recipient (as compared to `Dh` mode), it is possible that `Kem` could be optimized to read from a stream of public keys so that they don't all have to fit in memory at one time, but for now this "smaller batches" limitation feels reasonable as the encapsulate/decapsulate operations also come with a fairly high computational overhead.
 
