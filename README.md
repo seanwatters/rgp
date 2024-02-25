@@ -203,7 +203,7 @@ Classic McEliece was chosen despite its larger key sizes because it has a much s
 
 To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml).
 
-All benchmarks for multi-recipient `Dh` payloads are for **10,000** recipients, and all benchmarks for sign+encrypt/decrypt+verify are using **5mb** of data.
+All benchmarks for multi-recipient `Dh` and `Kem` mode are for **10,000** recipients, and all benchmarks for sign+encrypt/decrypt+verify are using **5mb** payloads.
 
 ## Disable Multi-threading
 
