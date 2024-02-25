@@ -285,7 +285,9 @@ fn kem_encrypt_keys<R: Read>(
 
             let mut key = GenericArray::from(*kem_shared_secret.as_array());
 
-            let dh_pub_key: [u8; KEY_SIZE] = buf[KEM_PUB_KEY_SIZE..KEY_SIZE].try_into().unwrap();
+            let dh_pub_key: [u8; KEY_SIZE] = buf[KEM_PUB_KEY_SIZE..KEM_PUB_KEY_SIZE + KEY_SIZE]
+                .try_into()
+                .unwrap();
             let dh_shared_secret = dh_priv_key.diffie_hellman(&dh_pub_key.into()).to_bytes();
 
             // HMAC the KEM shared secret with the Diffie-Hellman shared secret
