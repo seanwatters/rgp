@@ -79,10 +79,13 @@ if let Components::Dh(encrypted_key) = extract_components_mut(0, &mut encrypted_
 
 - nonce = 24 bytes
 - keys count
-    - int size = 2 bits
-    - count
-        - numbers 0-63 = 6 bits
-        - numbers >63 = 1-8 bytes (big endian int)
+    IF 0..=127
+        - is single byte = 1 bit (set)
+        - count = 7 bits
+    ELSE
+        - is single byte = 1 bit (unset)
+        - int size = 2 bits
+        - count = 8-64 bits
 - encrypted copies of content key = pub_keys.len() * 32 bytes
 - encrypted content = content.len()
 - signature = 64 bytes (encrypted along with the content)
