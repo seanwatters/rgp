@@ -79,10 +79,10 @@ if let Components::Dh(encrypted_key) = extract_components_mut(0, &mut encrypted_
 
 - nonce = 24 bytes
 - keys count
-    IF 0..=127
+    - IF 0..=127
         - is single byte = 1 bit (set)
         - count = 7 bits
-    ELSE
+    - ELSE
         - is single byte = 1 bit (unset)
         - int size = 2 bits
         - count = 8-64 bits
