@@ -19,21 +19,23 @@ pub fn main() -> Result<(), &'static str> {
     let content = vec![0u8; 5_000_000];
 
     // encrypt message with a session key
-    let (mut encrypted_content, _) = encrypt(
+    let (mut encrypted_content, content_key) = encrypt(
         fingerprint,
         content.clone(),
-        Encrypt::Session(session_key, false),
+        Encrypt::Session(session_key, true),
     )?;
 
-    if let Components::Session(_) = extract_components_mut(0, &mut encrypted_content) {
+    // extract encrypted key
+    if let Components::Session(encrypted_key) = extract_components_mut(0, &mut encrypted_content) {
         // decrypt message with session key
-        let (decrypted_content, _) = decrypt(
+        let (decrypted_content, decrypted_key) = decrypt(
             Some(&verifier),
             &encrypted_content,
-            Decrypt::Session(session_key, None),
+            Decrypt::Session(session_key, encrypted_key),
         )?;
 
         assert_eq!(decrypted_content, content);
+        assert_eq!(decrypted_key, content_key);
     };
 
     Ok(())

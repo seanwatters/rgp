@@ -14,16 +14,21 @@ license = "MIT"
 name = "rgp"
 readme = "README.md"
 repository = "https://github.com/seanwatters/rgp"
-version = "0.2.8"
+version = "0.3.0"
 
 [dependencies]
 blake2 = "0.10.6"
 chacha20 = "0.9.1"
 chacha20poly1305 = "0.10.1"
+classic-mceliece-rust = { version = "3.0.0", default-features = false, features = ["mceliece348864f"] }
 ed25519-dalek = { version = "2.0.0", features = ["rand_core"] }
 rand_core = "0.6.4"
 rayon = { version = "1.8.1", optional = true }
 x25519-dalek = { version =  "2.0.0", features = ["static_secrets"] }
+
+# needed for classic-mceliece-rust
+# maybe should add support for `rand_core` feature?
+rand = { version = "0.8.5" }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
