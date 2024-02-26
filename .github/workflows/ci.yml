@@ -10,19 +10,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  job:
+  single-threaded:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build --no-default-features --verbose
+    - name: Test
+      run: RUST_MIN_STACK=8388608 cargo test --no-default-features --verbose
+    - name: Benchmark
+      run: cargo bench --no-default-features --verbose
+
+  mutli-threaded:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose
-    - name: Tests
-      run: cargo test --verbose
+    - name: Test
+      run: RUST_MIN_STACK=8388608 cargo test --verbose
     - name: Benchmark
       run: cargo bench --verbose
-    - name: Benchmark (single threaded)
-      run: cargo bench --no-default-features --verbose
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

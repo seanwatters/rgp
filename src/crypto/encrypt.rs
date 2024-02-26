@@ -5,7 +5,6 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
 use std::{fs::File, io::Read};
 
 use super::{dh_encrypt, hmac_encrypt, kem_encrypt, session_encrypt, KemKeyReader, KEY_SIZE};
@@ -125,72 +124,16 @@ pub fn encrypt(
     content: Vec<u8>,
     mode: Encrypt,
 ) -> Result<(Vec<u8>, [u8; KEY_SIZE]), &'static str> {
-    let nonce = XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
-    let mut out = nonce.to_vec();
-
     match mode {
-        Encrypt::Session(session_key, with_key_gen) => {
-            let key = session_encrypt(
-                fingerprint,
-                nonce,
-                &mut out,
-                content,
-                with_key_gen,
-                session_key,
-            )?;
-
-            if with_key_gen {
-                out.push(3);
-            } else {
-                out.push(0);
-            }
-
-            Ok((out, key))
+        Encrypt::Session(session_key, with_keygen) => {
+            session_encrypt(fingerprint, content, session_key, with_keygen)
         }
         Encrypt::Hmac(hmac_key, hmac_value, iteration) => {
-            let key = hmac_encrypt(
-                fingerprint,
-                nonce,
-                &mut out,
-                content,
-                hmac_key,
-                hmac_value,
-                iteration,
-            )?;
-
-            out.push(1);
-
-            Ok((out, key))
+            hmac_encrypt(fingerprint, content, hmac_key, hmac_value, iteration)
         }
         Encrypt::Dh(priv_key, pub_keys, hmac_key) => {
-            let key = dh_encrypt(
-                fingerprint,
-                nonce,
-                &mut out,
-                content,
-                priv_key,
-                pub_keys,
-                hmac_key,
-            )?;
-
-            if hmac_key.is_some() {
-                out.push(4)
-            } else {
-                out.push(2)
-            }
-
-            Ok((out, key))
+            dh_encrypt(fingerprint, content, priv_key, pub_keys, hmac_key)
         }
-        Encrypt::Kem(mut key_reader) => {
-            let key = kem_encrypt(fingerprint, nonce, &mut out, content, &mut key_reader)?;
-
-            if key_reader.dh_priv_key.is_some() {
-                out.push(6);
-            } else {
-                out.push(5);
-            }
-
-            Ok((out, key))
-        }
+        Encrypt::Kem(mut key_reader) => kem_encrypt(fingerprint, content, &mut key_reader),
     }
 }

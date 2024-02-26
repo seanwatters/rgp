@@ -5,12 +5,10 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use crate::session_extract;
-
 use super::{
-    dh_extract, hmac_extract, kem_extract, DH_MODE, DH_WITH_HMAC_MODE, HMAC_MODE,
-    KEM_CIPHERTEXT_SIZE, KEM_MODE, KEM_MODE_WITH_DH_HYBRID, KEY_SIZE, SESSION_MODE,
-    SESSION_WITH_KEY_GEN_MODE,
+    dh_extract, hmac_extract, kem_extract, session_extract, DH_MODE, DH_WITH_HMAC_MODE, HMAC_MODE,
+    KEM_CIPHERTEXT_SIZE, KEM_MODE, KEM_WITH_DH_HYBRID_MODE, KEY_SIZE, SESSION_MODE,
+    SESSION_WITH_KEYGEN_MODE,
 };
 
 /// facilitates mode-specific decryption component extraction.
@@ -89,21 +87,21 @@ pub fn extract_components(
 /// };
 /// ```
 pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) -> Components {
-    let mode = encrypted_content.pop().expect("at least one element");
+    let mode = encrypted_content[encrypted_content.len() - 1];
 
     match mode {
         HMAC_MODE => Components::Hmac(hmac_extract(encrypted_content)),
-        SESSION_MODE | SESSION_WITH_KEY_GEN_MODE => Components::Session(session_extract(
+        SESSION_MODE | SESSION_WITH_KEYGEN_MODE => Components::Session(session_extract(
             encrypted_content,
-            mode == SESSION_WITH_KEY_GEN_MODE,
+            mode == SESSION_WITH_KEYGEN_MODE,
         )),
         DH_MODE | DH_WITH_HMAC_MODE => Components::Dh(
             dh_extract(position, encrypted_content),
             mode == DH_WITH_HMAC_MODE,
         ),
-        KEM_MODE | KEM_MODE_WITH_DH_HYBRID => {
+        KEM_MODE | KEM_WITH_DH_HYBRID_MODE => {
             let (content_key, ciphertext) = kem_extract(position, encrypted_content);
-            Components::Kem(content_key, ciphertext, mode == KEM_MODE_WITH_DH_HYBRID)
+            Components::Kem(content_key, ciphertext, mode == KEM_WITH_DH_HYBRID_MODE)
         }
         _ => unimplemented!(),
     }

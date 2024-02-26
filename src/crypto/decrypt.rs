@@ -7,10 +7,8 @@ This file may not be copied, modified, or distributed except according to those 
 
 use super::{
     dh_decrypt, hmac_decrypt, kem_decrypt, session_decrypt, KEM_CIPHERTEXT_SIZE,
-    KEM_SECRET_KEY_SIZE, KEY_SIZE, NONCE_SIZE,
+    KEM_SECRET_KEY_SIZE, KEY_SIZE,
 };
-
-use chacha20::cipher::{generic_array::GenericArray, typenum};
 
 /// encapsulates the parameters and mode for decryption.
 pub enum Decrypt {
@@ -112,36 +110,27 @@ pub fn decrypt(
     encrypted_content: &[u8],
     mode: Decrypt,
 ) -> Result<(Vec<u8>, [u8; KEY_SIZE]), &'static str> {
-    let nonce = &GenericArray::<u8, typenum::U24>::from_slice(&encrypted_content[0..NONCE_SIZE]);
-    let encrypted_content = &encrypted_content[NONCE_SIZE..];
-
     match mode {
-        Decrypt::Session(session_key, encrypted_key) => session_decrypt(
-            verifier,
-            nonce,
-            encrypted_content,
-            session_key,
-            encrypted_key,
-        ),
+        Decrypt::Session(session_key, encrypted_key) => {
+            session_decrypt(verifier, encrypted_content, session_key, encrypted_key)
+        }
         Decrypt::Hmac(hmac_key, hmac_value) => {
-            hmac_decrypt(verifier, nonce, encrypted_content, hmac_key, hmac_value)
+            hmac_decrypt(verifier, encrypted_content, hmac_key, hmac_value)
         }
         Decrypt::Dh(encrypted_key, pub_key, priv_key, hmac_key) => dh_decrypt(
             verifier,
-            nonce,
             encrypted_content,
             encrypted_key,
             pub_key,
             priv_key,
             hmac_key,
         ),
-        Decrypt::Kem(encrypted_key, ciphertext, mut secret_key, dh_components) => kem_decrypt(
+        Decrypt::Kem(encrypted_key, ciphertext, secret_key, dh_components) => kem_decrypt(
             verifier,
-            nonce,
             encrypted_content,
             encrypted_key,
             ciphertext,
-            &mut secret_key,
+            secret_key,
             dh_components,
         ),
     }

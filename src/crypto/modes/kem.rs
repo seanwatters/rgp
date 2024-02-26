@@ -18,7 +18,7 @@ use chacha20::{
     cipher::{generic_array::GenericArray, typenum, StreamCipher},
     XChaCha20,
 };
-use chacha20poly1305::XChaCha20Poly1305;
+use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
 use classic_mceliece_rust::{
     decapsulate, encapsulate, keypair as kem_keypair, Ciphertext, PublicKey as KemPublicKey,
     SecretKey as KemSecretKey, CRYPTO_CIPHERTEXTBYTES as KEM_CIPHERTEXT_SIZE,
@@ -26,8 +26,41 @@ use classic_mceliece_rust::{
 };
 use x25519_dalek::StaticSecret;
 
+/// #
+/// ENCRYPTED FORMAT:
+/// - nonce = 24 bytes
+/// - keys count
+///     - IF 0..=127
+///         - is single byte = 1 bit (set)
+///         - count = 7 bits
+///     - ELSE
+///         - is single byte = 1 bit (unset)
+///         - int size = 2 bits
+///         - count = 8-64 bits
+/// - encrypted copies of content key + ciphertext = pub_keys.len() * (32 bytes + 96 bytes)
+/// - encrypted content = content.len()
+/// - signature = 64 bytes (encrypted along with the content)
+/// - Poly1305 MAC = 16 bytes
+/// - mode = 1 byte (set to KEM_MODE)
 pub const KEM_MODE: u8 = 5;
-pub const KEM_MODE_WITH_DH_HYBRID: u8 = 6;
+
+/// #
+/// ENCRYPTED FORMAT:
+/// - nonce = 24 bytes
+/// - keys count
+///     - IF 0..=127
+///         - is single byte = 1 bit (set)
+///         - count = 7 bits
+///     - ELSE
+///         - is single byte = 1 bit (unset)
+///         - int size = 2 bits
+///         - count = 8-64 bits
+/// - encrypted copies of content key + ciphertext = pub_keys.len() * (32 bytes + 96 bytes)
+/// - encrypted content = content.len()
+/// - signature = 64 bytes (encrypted along with the content)
+/// - Poly1305 MAC = 16 bytes
+/// - mode = 1 byte (set to KEM_WITH_DH_HYBRID_MODE)
+pub const KEM_WITH_DH_HYBRID_MODE: u8 = 6;
 
 /// generates `Kem` pub/priv key pairs.
 ///
@@ -167,11 +200,12 @@ fn kem_encrypt_keys<R: Read>(
 #[inline(always)]
 pub fn kem_encrypt<'a, R: Read>(
     fingerprint: [u8; 32],
-    nonce: GenericArray<u8, typenum::U24>,
-    out: &mut Vec<u8>,
     mut content: Vec<u8>,
     key_reader: &mut KemKeyReader<R>,
-) -> Result<[u8; KEY_SIZE], &'static str> {
+) -> Result<(Vec<u8>, [u8; KEY_SIZE]), &'static str> {
+    let nonce = XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
+    let mut out = nonce.to_vec();
+
     use chacha20poly1305::KeyInit;
     let key = XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
 
@@ -195,22 +229,30 @@ pub fn kem_encrypt<'a, R: Read>(
 
     out.extend(encrypted_content);
 
-    Ok(key.into())
+    if key_reader.dh_priv_key.is_some() {
+        out.push(KEM_WITH_DH_HYBRID_MODE);
+    } else {
+        out.push(KEM_MODE);
+    }
+
+    Ok((out, key.into()))
 }
 
 /// kem decryption.
 #[inline(always)]
 pub fn kem_decrypt(
     verifier: Option<&[u8; 32]>,
-    nonce: &GenericArray<u8, typenum::U24>,
     encrypted_content: &[u8],
 
     mut encrypted_key: [u8; KEY_SIZE],
     ciphertext: [u8; KEM_CIPHERTEXT_SIZE],
-    secret_key: &mut [u8; KEM_SECRET_KEY_SIZE],
+    mut secret_key: [u8; KEM_SECRET_KEY_SIZE],
     dh_components: Option<([u8; KEY_SIZE], [u8; KEY_SIZE])>,
 ) -> Result<(Vec<u8>, [u8; KEY_SIZE]), &'static str> {
-    let secret_key = KemSecretKey::from(secret_key);
+    let nonce = &GenericArray::<u8, typenum::U24>::from_slice(&encrypted_content[0..NONCE_SIZE]);
+    let encrypted_content = &encrypted_content[NONCE_SIZE..];
+
+    let secret_key = KemSecretKey::from(&mut secret_key);
     let ciphertext = Ciphertext::from(ciphertext);
 
     let mut kem_shared_secret_buf = [0u8; KEY_SIZE];
@@ -265,8 +307,108 @@ pub fn kem_extract(
 
     encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
     encrypted_content.truncate(
-        encrypted_content.len() - keys_count_size - (keys_count * (KEY_SIZE + KEM_CIPHERTEXT_SIZE)),
+        encrypted_content.len()
+            - keys_count_size
+            - (keys_count * (KEY_SIZE + KEM_CIPHERTEXT_SIZE))
+            - 1,
     );
 
     (content_key, ciphertext)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::{remove_file, File, OpenOptions};
+    use std::io::Write;
+
+    use super::{kem_decrypt, kem_encrypt, kem_extract, KemKeyReader};
+
+    #[test]
+    fn test_kem() {
+        let (fingerprint, verifier) = crate::generate_fingerprint();
+
+        let (secret_key, pub_key) = crate::generate_kem_keys();
+
+        let content = vec![0u8; 1024];
+
+        let mut pub_keys_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open("test_kem_pub_keys")
+            .unwrap();
+
+        pub_keys_file.write_all(&pub_key).unwrap();
+        pub_keys_file.flush().unwrap();
+
+        let mut key_reader = KemKeyReader::new(File::open("test_kem_pub_keys").unwrap());
+
+        let (mut encrypted_content, content_key) =
+            kem_encrypt(fingerprint, content.clone(), &mut key_reader).unwrap();
+
+        let (encrypted_key, ciphertext) = kem_extract(0, &mut encrypted_content);
+
+        let (decrypted_content, decrypted_content_key) = kem_decrypt(
+            Some(&verifier),
+            &encrypted_content,
+            encrypted_key,
+            ciphertext,
+            secret_key,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(content, decrypted_content);
+        assert_eq!(content_key, decrypted_content_key);
+
+        remove_file("test_kem_pub_keys").unwrap()
+    }
+
+    #[test]
+    fn test_kem_with_dh_hybrid() {
+        let (fingerprint, verifier) = crate::generate_fingerprint();
+
+        let (kem_secret_key, kem_pub_key) = crate::generate_kem_keys();
+
+        let (sender_dh_priv_key, sender_dh_pub_key) = crate::generate_dh_keys();
+        let (recipient_dh_priv_key, recipient_dh_pub_key) = crate::generate_dh_keys();
+
+        let content = vec![0u8; 1024];
+
+        let mut pub_keys_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .append(true)
+            .open("test_kem_with_dh_hybrid_pub_keys")
+            .unwrap();
+
+        pub_keys_file.write_all(&kem_pub_key).unwrap();
+        pub_keys_file.write_all(&recipient_dh_pub_key).unwrap();
+        pub_keys_file.flush().unwrap();
+
+        let mut key_reader = KemKeyReader::new_dh_hybrid(
+            sender_dh_priv_key,
+            File::open("test_kem_with_dh_hybrid_pub_keys").unwrap(),
+        );
+
+        let (mut encrypted_content, content_key) =
+            kem_encrypt(fingerprint, content.clone(), &mut key_reader).unwrap();
+
+        let (encrypted_key, ciphertext) = kem_extract(0, &mut encrypted_content);
+
+        let (decrypted_content, decrypted_content_key) = kem_decrypt(
+            Some(&verifier),
+            &encrypted_content,
+            encrypted_key,
+            ciphertext,
+            kem_secret_key,
+            Some((sender_dh_pub_key, recipient_dh_priv_key)),
+        )
+        .unwrap();
+
+        assert_eq!(content, decrypted_content);
+        assert_eq!(content_key, decrypted_content_key);
+
+        remove_file("test_kem_with_dh_hybrid_pub_keys").unwrap()
+    }
 }

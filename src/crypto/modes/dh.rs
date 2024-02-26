@@ -19,10 +19,43 @@ use chacha20::{
     cipher::{generic_array::GenericArray, typenum, StreamCipher},
     XChaCha20,
 };
-use chacha20poly1305::XChaCha20Poly1305;
+use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
 use x25519_dalek::StaticSecret;
 
+/// #
+/// ENCRYPTED FORMAT:
+/// - nonce = 24 bytes
+/// - keys count
+///     - IF 0..=127
+///         - is single byte = 1 bit (set)
+///         - count = 7 bits
+///     - ELSE
+///         - is single byte = 1 bit (unset)
+///         - int size = 2 bits
+///         - count = 8-64 bits
+/// - encrypted copies of content key = pub_keys.len() * 32 bytes
+/// - encrypted content = content.len()
+/// - signature = 64 bytes (encrypted along with the content)
+/// - Poly1305 MAC = 16 bytes
+/// - mode = 1 byte (set to DH_MODE)
 pub const DH_MODE: u8 = 2;
+
+/// #
+/// ENCRYPTED FORMAT:
+/// - nonce = 24 bytes
+/// - keys count
+///     - IF 0..=127
+///         - is single byte = 1 bit (set)
+///         - count = 7 bits
+///     - ELSE
+///         - is single byte = 1 bit (unset)
+///         - int size = 2 bits
+///         - count = 8-64 bits
+/// - encrypted copies of content key = pub_keys.len() * 32 bytes
+/// - encrypted content = content.len()
+/// - signature = 64 bytes (encrypted along with the content)
+/// - Poly1305 MAC = 16 bytes
+/// - mode = 1 byte (set to DH_WITH_HMAC_MODE)
 pub const DH_WITH_HMAC_MODE: u8 = 4;
 
 /// generates `Dh` pub/priv key pairs.
@@ -42,7 +75,7 @@ pub fn generate_dh_keys() -> ([u8; 32], [u8; 32]) {
     (*priv_key.as_bytes(), *pub_key.as_bytes())
 }
 
-/// per-recipient content key encryption.
+// per-recipient content key encryption.
 #[inline(always)]
 fn dh_encrypt_keys(
     priv_key: [u8; KEY_SIZE],
@@ -86,17 +119,17 @@ fn dh_encrypt_keys(
     (header, keys)
 }
 
-/// dh encryption.
 #[inline(always)]
 pub fn dh_encrypt(
     fingerprint: [u8; 32],
-    nonce: GenericArray<u8, typenum::U24>,
-    out: &mut Vec<u8>,
     mut content: Vec<u8>,
     priv_key: [u8; KEY_SIZE],
     pub_keys: &Vec<[u8; KEY_SIZE]>,
     hmac_key: Option<[u8; KEY_SIZE]>,
-) -> Result<[u8; KEY_SIZE], &'static str> {
+) -> Result<(Vec<u8>, [u8; KEY_SIZE]), &'static str> {
+    let nonce = XChaCha20Poly1305::generate_nonce(&mut rand_core::OsRng);
+    let mut out = nonce.to_vec();
+
     use chacha20poly1305::KeyInit;
     let key = XChaCha20Poly1305::generate_key(&mut rand_core::OsRng);
 
@@ -120,14 +153,18 @@ pub fn dh_encrypt(
 
     out.extend(encrypted_content);
 
-    Ok(key.into())
+    if hmac_key.is_some() {
+        out.push(DH_WITH_HMAC_MODE);
+    } else {
+        out.push(DH_MODE);
+    }
+
+    Ok((out, key.into()))
 }
 
-/// dh decryption.
 #[inline(always)]
 pub fn dh_decrypt(
     verifier: Option<&[u8; 32]>,
-    nonce: &GenericArray<u8, typenum::U24>,
     encrypted_content: &[u8],
 
     mut encrypted_key: [u8; KEY_SIZE],
@@ -135,6 +172,9 @@ pub fn dh_decrypt(
     priv_key: [u8; KEY_SIZE],
     hmac_key: Option<[u8; KEY_SIZE]>,
 ) -> Result<(Vec<u8>, [u8; KEY_SIZE]), &'static str> {
+    let nonce = &GenericArray::<u8, typenum::U24>::from_slice(&encrypted_content[0..NONCE_SIZE]);
+    let encrypted_content = &encrypted_content[NONCE_SIZE..];
+
     let priv_key = StaticSecret::from(priv_key);
     let mut key = GenericArray::from(priv_key.diffie_hellman(&pub_key.into()).to_bytes());
 
@@ -155,7 +195,6 @@ pub fn dh_decrypt(
     base_decrypt(verifier, nonce, encrypted_key.into(), encrypted_content)
 }
 
-/// extract dh components.
 #[inline(always)]
 pub fn dh_extract(position: usize, encrypted_content: &mut Vec<u8>) -> [u8; KEY_SIZE] {
     let (keys_count_size, keys_count) =
@@ -172,7 +211,83 @@ pub fn dh_extract(position: usize, encrypted_content: &mut Vec<u8>) -> [u8; KEY_
     let encrypted_content_start = keys_start + (keys_count * KEY_SIZE);
 
     encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
-    encrypted_content.truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_SIZE));
+    encrypted_content
+        .truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_SIZE) - 1);
 
     content_key
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dh_decrypt, dh_encrypt, dh_extract};
+
+    #[test]
+    fn test_dh() {
+        let (fingerprint, verifier) = crate::generate_fingerprint();
+
+        let (sender_priv_key, sender_pub_key) = crate::generate_dh_keys();
+        let (recipient_priv_key, recipient_pub_key) = crate::generate_dh_keys();
+
+        let content = vec![0u8; 1024];
+
+        let (mut encrypted_content, content_key) = dh_encrypt(
+            fingerprint,
+            content.clone(),
+            sender_priv_key,
+            &vec![recipient_pub_key],
+            None,
+        )
+        .unwrap();
+
+        let encrypted_key = dh_extract(0, &mut encrypted_content);
+
+        let (decrypted_content, decrypted_content_key) = dh_decrypt(
+            Some(&verifier),
+            &encrypted_content,
+            encrypted_key,
+            sender_pub_key,
+            recipient_priv_key,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(content, decrypted_content);
+        assert_eq!(content_key, decrypted_content_key);
+    }
+
+    #[test]
+    fn test_dh_with_hmac() {
+        let (hmac_key, _) = crate::generate_dh_keys();
+
+        let (fingerprint, verifier) = crate::generate_fingerprint();
+
+        let (sender_priv_key, sender_pub_key) = crate::generate_dh_keys();
+        let (recipient_priv_key, recipient_pub_key) = crate::generate_dh_keys();
+
+        let content = vec![0u8; 1024];
+
+        let (mut encrypted_content, content_key) = dh_encrypt(
+            fingerprint,
+            content.clone(),
+            sender_priv_key,
+            &vec![recipient_pub_key],
+            Some(hmac_key),
+        )
+        .unwrap();
+
+        let encrypted_key = dh_extract(0, &mut encrypted_content);
+
+        let (decrypted_content, decrypted_content_key) = dh_decrypt(
+            Some(&verifier),
+            &encrypted_content,
+            encrypted_key,
+            sender_pub_key,
+            recipient_priv_key,
+            Some(hmac_key),
+        )
+        .unwrap();
+
+        assert_eq!(content, decrypted_content);
+        assert_eq!(content_key, decrypted_content_key);
+    }
 }

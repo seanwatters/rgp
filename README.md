@@ -94,23 +94,6 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
     - Generate shared secret with recipient's public key and sender's private key
     - Encrypt content key with shared secret
 
-#### Format
-
-- nonce = 24 bytes
-- keys count
-    - IF 0..=127
-        - is single byte = 1 bit (set)
-        - count = 7 bits
-    - ELSE
-        - is single byte = 1 bit (unset)
-        - int size = 2 bits
-        - count = 8-64 bits
-- encrypted copies of content key = pub_keys.len() * 32 bytes
-- encrypted content = content.len()
-- signature = 64 bytes (encrypted along with the content)
-- Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 2 for `Dh` or 4 for `Dh` with HMAC)
-
 ### HMAC
 
 `Hmac` mode provides backward secrecy, and can enable forward secrecy when the HMAC key is kept secret, if only the content key is compromised. Includes an iterator to make ratcheting logic easier to implement.
@@ -122,43 +105,18 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 3. Sign plaintext to generate content signature
 4. Encrypt plaintext and content signature with the hashed key
 
-#### Format
-
-- nonce = 24 bytes
-- iteration
-    - IF 0..=127
-        - is single byte = 1 bit (set)
-        - iteration = 7 bits
-    - ELSE
-        - is single byte = 1 bit (unset)
-        - int size = 2 bits
-        - iteration = 8-64 bits
-- encrypted content = content.len()
-- signature = 64 bytes (encrypted along with the content)
-- Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 1 for `Hmac`)
-
 ### Session
 
-`Session` by default provides no forward or backward secrecy, and uses the provided key "as is" without any modification. `Session` with key gen, however, does provide a weak forward secrecy as it will generate a fresh/single-use content key that is itself encrypted with the session key, thus protecting the session key if only the content key is compromised.
+`Session` by default provides no forward or backward secrecy, and uses the provided key "as is" without any modification. `Session` with keygen, however, does provide a weak forward secrecy as it will generate a fresh/single-use content key that is itself encrypted with the session key, thus protecting the session key if only the content key is compromised.
 
 #### Steps
 
 1. Generate one-time components
     - nonce
-    - content key (`Session` with key gen only)
+    - content key (`Session` with keygen only)
 2. Sign plaintext to generate content signature
 3. Encrypt plaintext and content signature with the content or session key
-4. Encrypt content key with session key (`Session` with key gen only)
-
-#### Format
-
-- nonce = 24 bytes
-- encrypted key = 32 bytes (`Session` with key gen only)
-- encrypted content = content.len()
-- signature = 64 bytes (encrypted along with the content)
-- Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 0 for `Session` or 3 for `Session` with key gen)
+4. Encrypt content key with session key (`Session` with keygen only)
 
 ### KEM
 
@@ -181,23 +139,6 @@ Classic McEliece was chosen despite its larger key sizes because it has a much s
     - Generate ciphertext and encapsulated key with recipient's public key and sender's private key
     - Encrypt content key with encapsulated key
     - Append ciphertext to encrypted content key
-
-#### Format
-
-- nonce = 24 bytes
-- keys count
-    - IF 0..=127
-        - is single byte = 1 bit (set)
-        - count = 7 bits
-    - ELSE
-        - is single byte = 1 bit (unset)
-        - int size = 2 bits
-        - count = 8-64 bits
-- encrypted copies of content key + ciphertext = pub_keys.len() * (32 bytes + 96 bytes)
-- encrypted content = content.len()
-- signature = 64 bytes (encrypted along with the content)
-- Poly1305 MAC = 16 bytes
-- mode = 1 byte (set to 5 for `Kem` or 6 for `Kem` with Diffie-Hellman)
 
 ## Performance
 

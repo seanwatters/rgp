@@ -14,7 +14,11 @@ use classic_mceliece_rust::{
 };
 
 mod modes;
-pub use modes::*;
+use modes::*;
+pub use modes::{
+    generate_dh_keys, generate_kem_keys, KemKeyReader, DH_MODE, DH_WITH_HMAC_MODE, HMAC_MODE,
+    KEM_MODE, KEM_WITH_DH_HYBRID_MODE, SESSION_MODE, SESSION_WITH_KEYGEN_MODE,
+};
 
 mod decrypt;
 pub use decrypt::*;
