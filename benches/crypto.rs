@@ -5,7 +5,7 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use std::fs::{remove_file, File, OpenOptions};
 use std::io::Write;
@@ -23,7 +23,12 @@ fn session_encrypt_benchmark(c: &mut Criterion) {
 
     c.bench_function("session_encrypt", |b| {
         b.iter(|| {
-            encrypt(fingerprint, content.clone(), Encrypt::Session(key, false)).unwrap();
+            encrypt(
+                black_box(fingerprint),
+                black_box(content.clone()),
+                black_box(Encrypt::Session(key, false)),
+            )
+            .unwrap();
         })
     });
 }
@@ -37,9 +42,9 @@ fn hmac_encrypt_benchmark(c: &mut Criterion) {
     c.bench_function("hmac_encrypt", |b| {
         b.iter(|| {
             encrypt(
-                fingerprint,
-                content.clone(),
-                Encrypt::Hmac(hmac_key, key, 0),
+                black_box(fingerprint),
+                black_box(content.clone()),
+                black_box(Encrypt::Hmac(hmac_key, key, 0)),
             )
             .unwrap();
         })
@@ -58,9 +63,9 @@ fn dh_encrypt_benchmark(c: &mut Criterion) {
     c.bench_function("dh_encrypt", |b| {
         b.iter(|| {
             encrypt(
-                fingerprint,
-                content.clone(),
-                Encrypt::Dh(sender_priv_key, &pub_keys, None),
+                black_box(fingerprint),
+                black_box(content.clone()),
+                black_box(Encrypt::Dh(sender_priv_key, &pub_keys, None)),
             )
             .unwrap();
         })
@@ -82,9 +87,9 @@ fn dh_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
     c.bench_function("dh_encrypt_multi_recipient", |b| {
         b.iter(|| {
             encrypt(
-                fingerprint,
-                content.clone(),
-                Encrypt::Dh(sender_priv_key, &pub_keys, None),
+                black_box(fingerprint),
+                black_box(content.clone()),
+                black_box(Encrypt::Dh(sender_priv_key, &pub_keys, None)),
             )
             .unwrap();
         })
@@ -111,9 +116,11 @@ fn kem_encrypt_benchmark(c: &mut Criterion) {
     c.bench_function("kem_encrypt", |b| {
         b.iter(|| {
             encrypt(
-                fingerprint,
-                content.clone(),
-                Encrypt::Kem(KemKeyReader::new(File::open("pub_keys").unwrap())),
+                black_box(fingerprint),
+                black_box(content.clone()),
+                black_box(Encrypt::Kem(KemKeyReader::new(
+                    File::open("pub_keys").unwrap(),
+                ))),
             )
             .unwrap();
         })
@@ -144,9 +151,11 @@ fn kem_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
     c.bench_function("kem_encrypt_multi_recipient", |b| {
         b.iter(|| {
             encrypt(
-                fingerprint,
-                content.clone(),
-                Encrypt::Kem(KemKeyReader::new(File::open("pub_keys").unwrap())),
+                black_box(fingerprint),
+                black_box(content.clone()),
+                black_box(Encrypt::Kem(KemKeyReader::new(
+                    File::open("pub_keys").unwrap(),
+                ))),
             )
             .unwrap();
         })
@@ -176,7 +185,7 @@ fn extract_components_benchmark(c: &mut Criterion) {
 
     c.bench_function("extract_components", |b| {
         b.iter(|| {
-            extract_components(0, encrypted_content.clone());
+            extract_components(black_box(0), black_box(encrypted_content.clone()));
         })
     });
 }
@@ -202,7 +211,7 @@ fn extract_components_mut_benchmark(c: &mut Criterion) {
 
     c.bench_function("extract_components_mut", |b| {
         b.iter(|| {
-            extract_components_mut(0, &mut encrypted_content.clone());
+            extract_components_mut(black_box(0), black_box(&mut encrypted_content.clone()));
         })
     });
 }
@@ -221,9 +230,9 @@ fn session_decrypt_benchmark(c: &mut Criterion) {
     c.bench_function("session_decrypt", |b| {
         b.iter(|| {
             decrypt(
-                Some(&verifying_key),
-                &encrypted_content,
-                Decrypt::Session(session_key, None),
+                black_box(Some(&verifying_key)),
+                black_box(&encrypted_content),
+                black_box(Decrypt::Session(session_key, None)),
             )
             .unwrap();
         })
@@ -244,9 +253,9 @@ fn hmac_decrypt_benchmark(c: &mut Criterion) {
     c.bench_function("hmac_decrypt", |b| {
         b.iter(|| {
             decrypt(
-                Some(&verifying_key),
-                &encrypted_content,
-                Decrypt::Hmac(hmac_key, hmac_value),
+                black_box(Some(&verifying_key)),
+                black_box(&encrypted_content),
+                black_box(Decrypt::Hmac(hmac_key, hmac_value)),
             )
             .unwrap();
         })
@@ -277,9 +286,14 @@ fn dh_decrypt_benchmark(c: &mut Criterion) {
     c.bench_function("dh_decrypt", |b| {
         b.iter(|| {
             decrypt(
-                Some(&verifying_key),
-                &encrypted_content,
-                Decrypt::Dh(content_key, sender_pub_key, receiver_priv_key, None),
+                black_box(Some(&verifying_key)),
+                black_box(&encrypted_content),
+                black_box(Decrypt::Dh(
+                    content_key,
+                    sender_pub_key,
+                    receiver_priv_key,
+                    None,
+                )),
             )
             .unwrap();
         })
@@ -318,9 +332,14 @@ fn kem_decrypt_benchmark(c: &mut Criterion) {
     c.bench_function("kem_decrypt", |b| {
         b.iter(|| {
             decrypt(
-                Some(&verifier),
-                &encrypted_content,
-                Decrypt::Kem(encrypted_key, ciphertext, recipient_secret_key, None),
+                black_box(Some(&verifier)),
+                black_box(&encrypted_content),
+                black_box(Decrypt::Kem(
+                    encrypted_key,
+                    ciphertext,
+                    recipient_secret_key,
+                    None,
+                )),
             )
             .unwrap();
         })
