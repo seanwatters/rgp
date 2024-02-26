@@ -66,6 +66,15 @@ if let Components::Dh(encrypted_key, _) =
 
 More in the [examples](https://github.com/seanwatters/rgp/tree/main/examples) directory.
 
+## Disable Multi-threading
+
+The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](https://crates.io/crates/rayon) crate. Multi-threading is currently only used in the `encrypt` function when using `Dh` or `Kem` modes to encrypt keys and content in parallel, but can be disabled by setting `default-features` to `false`.
+
+```toml
+[dependencies]
+rgp = { version = "x.x.x", default-features = false }
+```
+
 ## Modes
 
 There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, `Session` and `Kem` (Key Encapsulation Mechanism). All modes embed content signing and verification; deniability is preserved by signing the plaintext and encrypting the signature alongside the plaintext.
@@ -145,15 +154,6 @@ Classic McEliece was chosen despite its larger key sizes because it has a much s
 To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com//seanwatters/rgp/actions/workflows/ci.yml).
 
 All benchmarks for multi-recipient `Dh` and `Kem` mode are for **10,000** recipients, and all benchmarks for sign+encrypt/decrypt+verify are using **5mb** payloads.
-
-## Disable Multi-threading
-
-The `"multi-thread"` feature is enabled by default and utilizes the [Rayon](https://crates.io/crates/rayon) crate. Multi-threading is currently only used in the `encrypt` function when using `Dh` or `Kem` modes to encrypt keys and content in parallel, but can be disabled by setting `default-features` to `false`.
-
-```toml
-[dependencies]
-rgp = { version = "x.x.x", default-features = false }
-```
 
 ## License
 
