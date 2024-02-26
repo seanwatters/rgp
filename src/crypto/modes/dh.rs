@@ -76,7 +76,7 @@ pub const DH_MODE: u8 = 2;
 /// 4. Encrypt content key for all recipients
 ///     - Generate shared secret with recipient's public key and sender's private key
 ///     - HMAC the shared secret with the provided key
-///     - Encrypt content key with shared secret
+///     - Encrypt content key with the HMAC result
 pub const DH_WITH_HMAC_MODE: u8 = 4;
 
 /// generates `Dh` pub/priv key pairs.
