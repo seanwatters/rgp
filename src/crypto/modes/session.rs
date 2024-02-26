@@ -14,22 +14,36 @@ use chacha20::{
 use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
 
 /// #
-/// ENCRYPTED FORMAT:
+/// **ENCRYPTED FORMAT:**
 /// - nonce = 24 bytes
 /// - encrypted content = content.len()
 /// - signature = 64 bytes (encrypted along with the content)
 /// - Poly1305 MAC = 16 bytes
 /// - mode = 1 byte (set to SESSION_MODE)
+///
+/// **PROCESS:**
+/// 1. Generate one-time components
+///     - nonce
+/// 2. Sign plaintext to generate content signature
+/// 3. Encrypt plaintext and content signature with the content or session key
 pub const SESSION_MODE: u8 = 0;
 
 /// #
-/// ENCRYPTED FORMAT:
+/// **ENCRYPTED FORMAT:**
 /// - nonce = 24 bytes
 /// - encrypted key = 32 bytes (`Session` with keygen only)
 /// - encrypted content = content.len()
 /// - signature = 64 bytes (encrypted along with the content)
 /// - Poly1305 MAC = 16 bytes
 /// - mode = 1 byte (set to SESSION_WITH_KEYGEN_MODE)
+///
+/// **PROCESS:**
+/// 1. Generate one-time components
+///     - nonce
+///     - content key
+/// 2. Sign plaintext to generate content signature
+/// 3. Encrypt plaintext and content signature with the content or session key
+/// 4. Encrypt content key with session key
 pub const SESSION_WITH_KEYGEN_MODE: u8 = 3;
 
 /// session encryption.

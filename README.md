@@ -64,7 +64,7 @@ if let Components::Dh(encrypted_key, _) =
 };
 ```
 
-More in the [examples](https://github.com/seanwatters/rgp/tree/main/examples) directory.
+More in the [examples](https://docs.rs/crate/rgp/latest/source/examples/) directory.
 
 ## Disable Multi-threading
 
@@ -92,40 +92,13 @@ There are currently 4 supported top-level modes: `Dh` (Diffie-Hellman), `Hmac`, 
 
 `Dh` mode provides forward secrecy by generating a fresh/random content key for each message and encrypting a copy of that key for each recipient with their respective shared secrets (similar to PGP session keys). This mode can be used to manage the initial key exchange/ratchet seeding for `Session` and `Hmac` modes.
 
-#### Steps
-
-1. Generate one-time components
-    - nonce
-    - content key
-2. Sign plaintext to generate content signature
-3. Encrypt plaintext and content signature with content key
-4. Encrypt content key for all recipients
-    - Generate shared secret with recipient's public key and sender's private key
-    - Encrypt content key with shared secret
-
 ### HMAC
 
-`Hmac` mode provides backward secrecy, and can enable forward secrecy when the HMAC key is kept secret, if only the content key is compromised. Includes an iterator to make ratcheting logic easier to implement.
-
-#### Steps
-
-1. Generate nonce
-2. Hash the provided components
-3. Sign plaintext to generate content signature
-4. Encrypt plaintext and content signature with the hashed key
+`Hmac` mode provides backward secrecy, and can enable forward secrecy when the HMAC key is kept secret, if only the content key is compromised. This mode also keeps track of an iterator to make ratcheting logic easier to implement.
 
 ### Session
 
-`Session` by default provides no forward or backward secrecy, and uses the provided key "as is" without any modification. `Session` with keygen, however, does provide a weak forward secrecy as it will generate a fresh/single-use content key that is itself encrypted with the session key, thus protecting the session key if only the content key is compromised.
-
-#### Steps
-
-1. Generate one-time components
-    - nonce
-    - content key (`Session` with keygen only)
-2. Sign plaintext to generate content signature
-3. Encrypt plaintext and content signature with the content or session key
-4. Encrypt content key with session key (`Session` with keygen only)
+`Session` by default provides no forward or backward secrecy, and uses the provided key "as is" without any modification. When used with keygen, `Session` can provide a forward secrecy for the content key as it will generate a fresh/single-use content key that is itself encrypted with the session key, thus protecting the session key if only the content key is compromised.
 
 ### KEM
 
@@ -136,18 +109,6 @@ This mode can be used to manage the initial key exchange/ratchet seeding for `Se
 This mode depends on the [classic-mceliece-rust](https://crates.io/crates/classic-mceliece-rust) crate. It is recommended that the `Kem` with Diffie-Hellman hybrid, option be used until the underlying PQ crypto has been sufficiently validated.
 
 Classic McEliece was chosen despite its larger key sizes because it has a much smaller ciphertext, which is included for each recipient on each message.
-
-#### Steps
-
-1. Generate one-time components
-    - nonce
-    - content key
-2. Sign plaintext to generate content signature
-3. Encrypt plaintext and content signature with content key
-4. Encrypt content key for all recipients
-    - Generate ciphertext and encapsulated key with recipient's public key
-    - Encrypt content key with encapsulated key
-    - Append ciphertext to encrypted content key
 
 ## Performance
 

@@ -144,6 +144,7 @@ pub enum Encrypt<'a, R: Read = File> {
 /// #
 /// #     assert_eq!(decrypted_content, content_clone);
 /// # };
+/// # remove_file("doc_test_kem_pub_keys").unwrap();
 /// ```
 pub fn encrypt(
     fingerprint: [u8; 32],

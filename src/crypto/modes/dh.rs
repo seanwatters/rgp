@@ -23,7 +23,7 @@ use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
 use x25519_dalek::StaticSecret;
 
 /// #
-/// ENCRYPTED FORMAT:
+/// **ENCRYPTED FORMAT:**
 /// - nonce = 24 bytes
 /// - keys count
 ///     - IF 0..=127
@@ -38,10 +38,20 @@ use x25519_dalek::StaticSecret;
 /// - signature = 64 bytes (encrypted along with the content)
 /// - Poly1305 MAC = 16 bytes
 /// - mode = 1 byte (set to DH_MODE)
+///
+/// **PROCESS:**
+/// 1. Generate one-time components
+///     - nonce
+///     - content key
+/// 2. Sign plaintext to generate content signature
+/// 3. Encrypt plaintext and content signature with content key
+/// 4. Encrypt content key for all recipients
+///     - Generate shared secret with recipient's public key and sender's private key
+///     - Encrypt content key with shared secret
 pub const DH_MODE: u8 = 2;
 
 /// #
-/// ENCRYPTED FORMAT:
+/// **ENCRYPTED FORMAT:**
 /// - nonce = 24 bytes
 /// - keys count
 ///     - IF 0..=127
@@ -56,6 +66,17 @@ pub const DH_MODE: u8 = 2;
 /// - signature = 64 bytes (encrypted along with the content)
 /// - Poly1305 MAC = 16 bytes
 /// - mode = 1 byte (set to DH_WITH_HMAC_MODE)
+///
+/// **PROCESS:**
+/// 1. Generate one-time components
+///     - nonce
+///     - content key
+/// 2. Sign plaintext to generate content signature
+/// 3. Encrypt plaintext and content signature with content key
+/// 4. Encrypt content key for all recipients
+///     - Generate shared secret with recipient's public key and sender's private key
+///     - HMAC the shared secret with the provided key
+///     - Encrypt content key with shared secret
 pub const DH_WITH_HMAC_MODE: u8 = 4;
 
 /// generates `Dh` pub/priv key pairs.

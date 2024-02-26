@@ -16,7 +16,7 @@ use blake2::digest::{
 use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
 
 /// #
-/// ENCRYPTED FORMAT:
+/// **ENCRYPTED FORMAT:**
 /// - nonce = 24 bytes
 /// - iteration
 ///     - IF 0..=127
@@ -30,6 +30,12 @@ use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
 /// - signature = 64 bytes (encrypted along with the content)
 /// - Poly1305 MAC = 16 bytes
 /// - mode = 1 byte (set to HMAC_MODE)
+///
+/// **PROCESS:**
+/// 1. Generate nonce
+/// 2. Hash the provided components
+/// 3. Sign plaintext to generate content signature
+/// 4. Encrypt plaintext and content signature with the hashed key
 pub const HMAC_MODE: u8 = 1;
 
 /// hmac encryption.

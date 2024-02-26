@@ -27,7 +27,7 @@ use classic_mceliece_rust::{
 use x25519_dalek::StaticSecret;
 
 /// #
-/// ENCRYPTED FORMAT:
+/// **ENCRYPTED FORMAT:**
 /// - nonce = 24 bytes
 /// - keys count
 ///     - IF 0..=127
@@ -42,10 +42,21 @@ use x25519_dalek::StaticSecret;
 /// - signature = 64 bytes (encrypted along with the content)
 /// - Poly1305 MAC = 16 bytes
 /// - mode = 1 byte (set to KEM_MODE)
+///
+/// **PROCESS:**
+/// 1. Generate one-time components
+///     - nonce
+///     - content key
+/// 2. Sign plaintext to generate content signature
+/// 3. Encrypt plaintext and content signature with content key
+/// 4. Encrypt content key for all recipients
+///     - Generate ciphertext and encapsulated key with recipient's public key
+///     - Encrypt content key with encapsulated key
+///     - Append ciphertext to encrypted content key
 pub const KEM_MODE: u8 = 5;
 
 /// #
-/// ENCRYPTED FORMAT:
+/// **ENCRYPTED FORMAT:**
 /// - nonce = 24 bytes
 /// - keys count
 ///     - IF 0..=127
@@ -60,6 +71,19 @@ pub const KEM_MODE: u8 = 5;
 /// - signature = 64 bytes (encrypted along with the content)
 /// - Poly1305 MAC = 16 bytes
 /// - mode = 1 byte (set to KEM_WITH_DH_HYBRID_MODE)
+///
+/// **PROCESS:**
+/// 1. Generate one-time components
+///     - nonce
+///     - content key
+/// 2. Sign plaintext to generate content signature
+/// 3. Encrypt plaintext and content signature with content key
+/// 4. Encrypt content key for all recipients
+///     - Generate ciphertext and encapsulated key with recipient's public key for `Kem`
+///     - Generate shared secret with recipient's public key and sender's private key for `Dh`
+///     - HMAC the `Kem` encapsulated key with the `Dh` shared secret as the key
+///     - Encrypt content key with encapsulated key
+///     - Append ciphertext to encrypted content key
 pub const KEM_WITH_DH_HYBRID_MODE: u8 = 6;
 
 /// generates `Kem` pub/priv key pairs.
