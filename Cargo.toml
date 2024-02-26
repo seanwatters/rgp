@@ -14,7 +14,7 @@ license = "MIT"
 name = "rgp"
 readme = "README.md"
 repository = "https://github.com/seanwatters/rgp"
-version = "0.3.0"
+version = "0.4.0-alpha"
 
 [dependencies]
 blake2 = "0.10.6"
@@ -23,7 +23,7 @@ chacha20poly1305 = "0.10.1"
 classic-mceliece-rust = { version = "3.0.0", default-features = false, features = ["mceliece348864f"] }
 ed25519-dalek = { version = "2.0.0", features = ["rand_core"] }
 rand_core = "0.6.4"
-uuid = { verson = "1.7.0", features = ["v4"] }
+uuid = { version = "1.7.0", features = ["v4"] }
 rayon = { version = "1.8.1", optional = true }
 x25519-dalek = { version =  "2.0.0", features = ["static_secrets"] }
 
