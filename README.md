@@ -64,7 +64,7 @@ if let Components::Dh(encrypted_key, _) =
 };
 ```
 
-More in the [examples](https://docs.rs/crate/rgp/latest/source/examples/) directory.
+More in the [examples](https://github.com/seanwatters/rgp/tree/main/examples) directory.
 
 ## Disable Multi-threading
 
