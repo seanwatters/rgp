@@ -11,8 +11,8 @@ use std::fs::{remove_file, File, OpenOptions};
 use std::io::Write;
 
 use rgp::{
-    decrypt, encrypt, extract_components, extract_components_mut, generate_dh_keys,
-    generate_fingerprint, generate_kem_keys, Components, Decrypt, Encrypt, KemKeyReader,
+    decrypt, encrypt, extract_components_mut, generate_dh_keys, generate_fingerprint,
+    generate_kem_keys, Components, Decrypt, Encrypt, KemKeyReader,
 };
 
 fn session_encrypt_benchmark(c: &mut Criterion) {
