@@ -164,58 +164,6 @@ fn kem_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
     remove_file("pub_keys").unwrap();
 }
 
-fn extract_components_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = generate_fingerprint();
-    let (sender_priv_key, _) = generate_dh_keys();
-
-    let content = vec![0u8; 5_000_000];
-    let mut pub_keys = vec![];
-
-    for _ in 0..10_000 {
-        let (_, pub_key) = generate_dh_keys();
-        pub_keys.push(pub_key)
-    }
-
-    let (encrypted_content, _) = encrypt(
-        fingerprint,
-        content,
-        Encrypt::Dh(sender_priv_key, &pub_keys, None),
-    )
-    .unwrap();
-
-    c.bench_function("extract_components", |b| {
-        b.iter(|| {
-            extract_components(black_box(0), black_box(encrypted_content.clone()));
-        })
-    });
-}
-
-fn extract_components_mut_benchmark(c: &mut Criterion) {
-    let (fingerprint, _) = generate_fingerprint();
-    let (sender_priv_key, _) = generate_dh_keys();
-
-    let content = vec![0u8; 5_000_000];
-    let mut pub_keys = vec![];
-
-    for _ in 0..10_000 {
-        let (_, pub_key) = generate_dh_keys();
-        pub_keys.push(pub_key)
-    }
-
-    let (encrypted_content, _) = encrypt(
-        fingerprint,
-        content,
-        Encrypt::Dh(sender_priv_key, &pub_keys, None),
-    )
-    .unwrap();
-
-    c.bench_function("extract_components_mut", |b| {
-        b.iter(|| {
-            extract_components_mut(black_box(0), black_box(&mut encrypted_content.clone()));
-        })
-    });
-}
-
 fn session_decrypt_benchmark(c: &mut Criterion) {
     let (fingerprint, verifying_key) = generate_fingerprint();
     let (session_key, _) = generate_dh_keys();
@@ -356,8 +304,6 @@ criterion_group!(
     dh_encrypt_multi_recipient_benchmark,
     kem_encrypt_benchmark,
     kem_encrypt_multi_recipient_benchmark,
-    extract_components_benchmark,
-    extract_components_mut_benchmark,
     session_decrypt_benchmark,
     hmac_decrypt_benchmark,
     dh_decrypt_benchmark,
