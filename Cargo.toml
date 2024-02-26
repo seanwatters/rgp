@@ -5,7 +5,7 @@
 
 [package]
 authors = ["sean watters <sean@watters.io>"]
-description = "Enabling efficient E2EE for large-audience pub/sub."
+description = "Enabling E2EE for a broad range of applications."
 categories = ["cryptography"]
 edition = "2021"
 homepage = "https://github.com/seanwatters/rgp"
