@@ -145,7 +145,7 @@ Classic McEliece was chosen despite its larger key sizes because it has a much s
 2. Sign plaintext to generate content signature
 3. Encrypt plaintext and content signature with content key
 4. Encrypt content key for all recipients
-    - Generate ciphertext and encapsulated key with recipient's public key and sender's private key
+    - Generate ciphertext and encapsulated key with recipient's public key
     - Encrypt content key with encapsulated key
     - Append ciphertext to encrypted content key
 
