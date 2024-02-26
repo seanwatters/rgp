@@ -191,7 +191,7 @@ pub fn kem_encrypt<'a, R: Read>(
     #[cfg(feature = "multi-thread")]
     let encrypted_content = receiver.recv().unwrap()?;
     #[cfg(not(feature = "multi-thread"))]
-    let encrypted_content = base_encrypt(fingerprint, &nonce, &key, content)?;
+    let encrypted_content = base_encrypt(fingerprint, &nonce, &key, &mut content)?;
 
     out.extend(encrypted_content);
 
