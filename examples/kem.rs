@@ -27,7 +27,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         .create(true)
         .write(true)
         .append(true)
-        .open("pub_keys")?;
+        .open("example_kem_pub_keys")?;
 
     // write first recipient's pub key to pub key file
     pub_keys_file.write_all(&recipient_pub_key)?;
@@ -42,7 +42,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // initialize public key reader for McEliece pub key file
-    let key_reader = KemKeyReader::new(File::open("pub_keys")?);
+    let key_reader = KemKeyReader::new(File::open("example_kem_pub_keys")?);
 
     // encrypt message for all recipients
     let (mut encrypted_content, content_key) =
@@ -63,7 +63,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         assert_eq!(decrypted_content_key, content_key);
     };
 
-    remove_file("pub_keys")?;
+    remove_file("example_kem_pub_keys")?;
 
     Ok(())
 }
