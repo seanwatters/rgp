@@ -5,12 +5,16 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use super::super::{base_decrypt, base_encrypt, usize_to_bytes, KEY_SIZE};
+use super::super::{
+    base_decrypt, base_encrypt, bytes_to_usize, usize_to_bytes, KEY_SIZE, NONCE_SIZE,
+};
 
 use blake2::digest::{
     generic_array::{typenum, GenericArray},
     FixedOutput, Mac,
 };
+
+pub const HMAC_MODE: u8 = 1;
 
 /// hmac encryption.
 #[inline(always)]
@@ -53,4 +57,15 @@ pub fn hmac_decrypt(
         .finalize_fixed();
 
     base_decrypt(verifier, nonce, key.into(), encrypted_content)
+}
+
+/// extract hmac components.
+#[inline(always)]
+pub fn hmac_extract(encrypted_content: &mut Vec<u8>) -> usize {
+    let (itr_size, itr) = bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
+
+    encrypted_content.copy_within(NONCE_SIZE + itr_size.., NONCE_SIZE);
+    encrypted_content.truncate(encrypted_content.len() - itr_size);
+
+    itr
 }

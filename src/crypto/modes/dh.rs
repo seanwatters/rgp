@@ -5,7 +5,9 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use super::super::{base_decrypt, base_encrypt, usize_to_bytes, KEY_SIZE};
+use super::super::{
+    base_decrypt, base_encrypt, bytes_to_usize, usize_to_bytes, KEY_SIZE, NONCE_SIZE,
+};
 
 #[cfg(feature = "multi-thread")]
 use rayon::prelude::*;
@@ -19,6 +21,9 @@ use chacha20::{
 };
 use chacha20poly1305::XChaCha20Poly1305;
 use x25519_dalek::StaticSecret;
+
+pub const DH_MODE: u8 = 2;
+pub const DH_WITH_HMAC_MODE: u8 = 4;
 
 /// generates `Dh` pub/priv key pairs.
 ///
@@ -148,4 +153,26 @@ pub fn dh_decrypt(
     key_cipher.apply_keystream(&mut encrypted_key);
 
     base_decrypt(verifier, nonce, encrypted_key.into(), encrypted_content)
+}
+
+/// extract dh components.
+#[inline(always)]
+pub fn dh_extract(position: usize, encrypted_content: &mut Vec<u8>) -> [u8; KEY_SIZE] {
+    let (keys_count_size, keys_count) =
+        bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
+
+    let keys_start = NONCE_SIZE + keys_count_size;
+    let encrypted_key_start = keys_start + (position as usize * KEY_SIZE);
+
+    let content_key: [u8; KEY_SIZE] = encrypted_content
+        [encrypted_key_start..encrypted_key_start + KEY_SIZE]
+        .try_into()
+        .unwrap();
+
+    let encrypted_content_start = keys_start + (keys_count * KEY_SIZE);
+
+    encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
+    encrypted_content.truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_SIZE));
+
+    content_key
 }

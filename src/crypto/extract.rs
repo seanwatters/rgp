@@ -5,7 +5,13 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use super::{bytes_to_usize, KEM_CIPHERTEXT_SIZE, KEY_SIZE, NONCE_SIZE};
+use crate::session_extract;
+
+use super::{
+    dh_extract, hmac_extract, kem_extract, DH_MODE, DH_WITH_HMAC_MODE, HMAC_MODE,
+    KEM_CIPHERTEXT_SIZE, KEM_MODE, KEM_MODE_WITH_DH_HYBRID, KEY_SIZE, SESSION_MODE,
+    SESSION_WITH_KEY_GEN_MODE,
+};
 
 /// facilitates mode-specific decryption component extraction.
 #[derive(Debug)]
@@ -86,81 +92,19 @@ pub fn extract_components_mut(position: usize, encrypted_content: &mut Vec<u8>) 
     let mode = encrypted_content.pop().expect("at least one element");
 
     match mode {
-        // Hmac
-        1 => {
-            let (itr_size, itr) = bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
-
-            encrypted_content.copy_within(NONCE_SIZE + itr_size.., NONCE_SIZE);
-            encrypted_content.truncate(encrypted_content.len() - itr_size);
-
-            Components::Hmac(itr)
+        HMAC_MODE => Components::Hmac(hmac_extract(encrypted_content)),
+        SESSION_MODE | SESSION_WITH_KEY_GEN_MODE => Components::Session(session_extract(
+            encrypted_content,
+            mode == SESSION_WITH_KEY_GEN_MODE,
+        )),
+        DH_MODE | DH_WITH_HMAC_MODE => Components::Dh(
+            dh_extract(position, encrypted_content),
+            mode == DH_WITH_HMAC_MODE,
+        ),
+        KEM_MODE | KEM_MODE_WITH_DH_HYBRID => {
+            let (content_key, ciphertext) = kem_extract(position, encrypted_content);
+            Components::Kem(content_key, ciphertext, mode == KEM_MODE_WITH_DH_HYBRID)
         }
-        // Session with key gen
-        3 => {
-            let encrypted_key: [u8; KEY_SIZE] = encrypted_content
-                [NONCE_SIZE..NONCE_SIZE + KEY_SIZE]
-                .try_into()
-                .unwrap();
-
-            encrypted_content.copy_within(NONCE_SIZE + KEY_SIZE.., NONCE_SIZE);
-            encrypted_content.truncate(encrypted_content.len() - KEY_SIZE);
-
-            Components::Session(Some(encrypted_key))
-        }
-        // Dh | Dh with HMAC
-        2 | 4 => {
-            let (keys_count_size, keys_count) =
-                bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
-
-            let keys_start = NONCE_SIZE + keys_count_size;
-            let encrypted_key_start = keys_start + (position as usize * KEY_SIZE);
-
-            let content_key: [u8; KEY_SIZE] = encrypted_content
-                [encrypted_key_start..encrypted_key_start + KEY_SIZE]
-                .try_into()
-                .unwrap();
-
-            let encrypted_content_start = keys_start + (keys_count * KEY_SIZE);
-
-            encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
-            encrypted_content
-                .truncate(encrypted_content.len() - keys_count_size - (keys_count * KEY_SIZE));
-
-            Components::Dh(content_key, mode == 3)
-        }
-        // Kem
-        5 | 6 => {
-            let (keys_count_size, keys_count) =
-                bytes_to_usize(&encrypted_content[NONCE_SIZE..NONCE_SIZE + 9]);
-
-            let keys_start = NONCE_SIZE + keys_count_size;
-            let encrypted_key_start =
-                keys_start + (position as usize * (KEY_SIZE + KEM_CIPHERTEXT_SIZE));
-
-            let content_key: [u8; KEY_SIZE] = encrypted_content
-                [encrypted_key_start..encrypted_key_start + KEY_SIZE]
-                .try_into()
-                .unwrap();
-
-            let ciphertext: [u8; KEM_CIPHERTEXT_SIZE] = encrypted_content[encrypted_key_start
-                + KEY_SIZE
-                ..encrypted_key_start + (KEY_SIZE + KEM_CIPHERTEXT_SIZE)]
-                .try_into()
-                .unwrap();
-
-            let encrypted_content_start =
-                keys_start + (keys_count * (KEY_SIZE + KEM_CIPHERTEXT_SIZE));
-
-            encrypted_content.copy_within(encrypted_content_start.., NONCE_SIZE);
-            encrypted_content.truncate(
-                encrypted_content.len()
-                    - keys_count_size
-                    - (keys_count * (KEY_SIZE + KEM_CIPHERTEXT_SIZE)),
-            );
-
-            Components::Kem(content_key, ciphertext, mode == 6)
-        }
-        // Session
-        _ => Components::Session(None),
+        _ => unimplemented!(),
     }
 }

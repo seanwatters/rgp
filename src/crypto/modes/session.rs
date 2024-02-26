@@ -5,13 +5,16 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use super::super::{base_decrypt, base_encrypt, KEY_SIZE};
+use super::super::{base_decrypt, base_encrypt, KEY_SIZE, NONCE_SIZE};
 
 use chacha20::{
     cipher::{generic_array::GenericArray, typenum, StreamCipher},
     XChaCha20,
 };
 use chacha20poly1305::XChaCha20Poly1305;
+
+pub const SESSION_MODE: u8 = 0;
+pub const SESSION_WITH_KEY_GEN_MODE: u8 = 3;
 
 /// session encryption.
 #[inline(always)]
@@ -73,5 +76,25 @@ pub fn session_decrypt(
         base_decrypt(verifier, nonce, encrypted_key.into(), encrypted_content)
     } else {
         base_decrypt(verifier, nonce, session_key.into(), encrypted_content)
+    }
+}
+
+/// extract session components.
+#[inline(always)]
+pub fn session_extract(
+    encrypted_content: &mut Vec<u8>,
+    with_key_gen: bool,
+) -> Option<[u8; KEY_SIZE]> {
+    if with_key_gen {
+        let encrypted_key: [u8; KEY_SIZE] = encrypted_content[NONCE_SIZE..NONCE_SIZE + KEY_SIZE]
+            .try_into()
+            .unwrap();
+
+        encrypted_content.copy_within(NONCE_SIZE + KEY_SIZE.., NONCE_SIZE);
+        encrypted_content.truncate(encrypted_content.len() - KEY_SIZE);
+
+        Some(encrypted_key)
+    } else {
+        None
     }
 }
