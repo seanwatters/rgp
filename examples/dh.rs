@@ -31,16 +31,16 @@ pub fn main() -> Result<(), &'static str> {
     let (mut encrypted_content, content_key) = encrypt(
         fingerprint,
         content.clone(),
-        Encrypt::Dh(sender_priv_key, &pub_keys),
+        Encrypt::Dh(sender_priv_key, &pub_keys, None),
     )?;
 
     // extract encrypted content key at position 0
-    if let Components::Dh(encrypted_key) = extract_components_mut(0, &mut encrypted_content) {
+    if let Components::Dh(encrypted_key, _) = extract_components_mut(0, &mut encrypted_content) {
         // decrypt message with encrypted content key
         let (decrypted_content, decrypted_content_key) = decrypt(
             Some(&verifier),
             &encrypted_content,
-            Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key),
+            Decrypt::Dh(encrypted_key, sender_pub_key, receiver_priv_key, None),
         )?;
 
         assert_eq!(decrypted_content, content);

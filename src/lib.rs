@@ -100,12 +100,12 @@ impl<'a, T: Connection> SendStream<'a, T> {
         let (fingerprint, _) = crate::generate_fingerprint();
 
         let (mode, new_itr) = match mode {
-            Mode::Dh => (Encrypt::Dh(self.dh_priv, &self.dh_pubs), 0),
+            Mode::Dh => (Encrypt::Dh(self.dh_priv, &self.dh_pubs, None), 0),
             Mode::Hmac => (
                 Encrypt::Hmac(self.hmac_key, self.last_key.1, self.last_key.0),
                 self.last_key.0 + 1,
             ),
-            Mode::Session => (Encrypt::Session(self.last_key.1), self.last_key.0),
+            Mode::Session => (Encrypt::Session(self.last_key.1, false), self.last_key.0),
         };
 
         let (encrypted_content, key) = encrypt(fingerprint, content, mode)?;
@@ -167,10 +167,10 @@ impl<'a, T: Connection> RecvStream<'a, T> {
 
         for encrypted_msg in &mut encrypted_msgs {
             let (decrypted, key) = match extract_components_mut(self.position, encrypted_msg) {
-                Components::Dh(content_key) => decrypt(
+                Components::Dh(content_key, _) => decrypt(
                     Some(&self.verifying_key),
                     encrypted_msg,
-                    Decrypt::Dh(content_key, self.dh_priv, self.dh_pub),
+                    Decrypt::Dh(content_key, self.dh_priv, self.dh_pub, None),
                 )?,
                 Components::Hmac(itr) => {
                     // TODO: do stuff with itr
@@ -181,11 +181,12 @@ impl<'a, T: Connection> RecvStream<'a, T> {
                         Decrypt::Hmac(self.hmac_key, self.last_key.1),
                     )?
                 }
-                Components::Session => decrypt(
+                Components::Session(_) => decrypt(
                     Some(&self.verifying_key),
                     encrypted_msg,
-                    Decrypt::Session(self.last_key.1),
+                    Decrypt::Session(self.last_key.1, None),
                 )?,
+                Components::Kem(_, _, _) => (vec![], [0u8; 32]),
             };
 
             self.last_key = (0, key);
