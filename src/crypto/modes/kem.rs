@@ -82,7 +82,7 @@ pub const KEM_MODE: u8 = 5;
 ///     - Generate ciphertext and encapsulated key with recipient's public key for `Kem`
 ///     - Generate shared secret with recipient's public key and sender's private key for `Dh`
 ///     - HMAC the `Kem` encapsulated key with the `Dh` shared secret as the key
-///     - Encrypt content key with encapsulated key
+///     - Encrypt content key with the HMAC result
 ///     - Append ciphertext to encrypted content key
 pub const KEM_WITH_DH_HYBRID_MODE: u8 = 6;
 
