@@ -115,9 +115,9 @@ fn dh_encrypt_keys(
     let mut keys = vec![0u8; KEY_SIZE * keys_count];
 
     #[cfg(feature = "multi-thread")]
-    let chunks = keys.par_chunks_mut(KEY_SIZE);
+    let chunks = keys.par_chunks_exact_mut(KEY_SIZE);
     #[cfg(not(feature = "multi-thread"))]
-    let chunks = keys.chunks_mut(KEY_SIZE);
+    let chunks = keys.chunks_exact_mut(KEY_SIZE);
 
     chunks.enumerate().for_each(|(i, chunk)| {
         let mut key = GenericArray::from(priv_key.diffie_hellman(&pub_keys[i].into()).to_bytes());
