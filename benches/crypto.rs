@@ -298,16 +298,16 @@ fn kem_decrypt_benchmark(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    session_encrypt_benchmark,
-    hmac_encrypt_benchmark,
-    dh_encrypt_benchmark,
+    // session_encrypt_benchmark,
+    // hmac_encrypt_benchmark,
+    // dh_encrypt_benchmark,
     dh_encrypt_multi_recipient_benchmark,
-    kem_encrypt_benchmark,
-    kem_encrypt_multi_recipient_benchmark,
-    session_decrypt_benchmark,
-    hmac_decrypt_benchmark,
-    dh_decrypt_benchmark,
-    kem_decrypt_benchmark,
+    // kem_encrypt_benchmark,
+    // kem_encrypt_multi_recipient_benchmark,
+    // session_decrypt_benchmark,
+    // hmac_decrypt_benchmark,
+    // dh_decrypt_benchmark,
+    // kem_decrypt_benchmark,
 );
 
 criterion_main!(benches);

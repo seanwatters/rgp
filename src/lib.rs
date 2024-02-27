@@ -10,17 +10,18 @@ This file may not be copied, modified, or distributed except according to those 
 mod crypto;
 pub use crypto::*;
 
-use std::error::Error;
+use std::{error::Error, fs::File};
 use uuid::Uuid;
 
-/// the encryption mode for a given message.
-pub enum Mode {
+/// specifies the encryption mode for a given message being sent.
+pub enum SendMode {
     Dh,
     Hmac,
     Session,
+    Kem,
 }
 
-/// facilitates interaction binding to remote.
+/// facilitates `Interaction` binding to a remote.
 pub trait Connection {
     fn create_stream(&self) -> Result<Uuid, Box<dyn Error>>;
 
@@ -33,32 +34,37 @@ struct SendStream<'a, T: Connection> {
 
     id: Uuid,
 
-    // initialized as a constant but can be set
-    hmac_key: [u8; 32],
-    // (iteration for current hmac_key, current key value)
-    last_key: (usize, [u8; 32]),
+    hmac_key: Option<[u8; 32]>,
+    last_key: (usize, Option<[u8; 32]>),
 
     dh_priv: [u8; 32],
-    // `dh_pubs` and `usernames` are ordered and correlated
     dh_pubs: Vec<[u8; 32]>,
     usernames: Vec<String>,
+
+    // TODO: make this work such that this is just a reader that starts
+    // TODO: at the keys in the file that are already stored and don't
+    // TODO: deal with a second file.
+    kem_key_file_loc: String,
 }
 
 impl<'a, T: Connection> SendStream<'a, T> {
     pub fn new(connection: &'a T) -> Self {
         let (dh_priv, _) = generate_dh_keys();
 
+        let uuid = Uuid::new_v4();
+
         Self {
             connection,
 
-            id: Uuid::new_v4(),
+            id: uuid,
 
-            hmac_key: [0u8; 32],
-            last_key: (0, [0u8; 32]),
+            hmac_key: None,
+            last_key: (0, None),
 
             dh_priv,
             dh_pubs: vec![],
             usernames: vec![],
+            kem_key_file_loc: format!("kem_key_file_{}", uuid.to_string()),
         }
     }
 
@@ -77,17 +83,22 @@ impl<'a, T: Connection> SendStream<'a, T> {
     /// - dh_pubs = 32 bytes * recipient count
     /// - usernames = variable bytes * recipient count (encrypted)
     pub fn from_bytes(bytes: &[u8], connection: &'a T) -> Self {
+        // TODO: write to the kem key file
+
+        let uuid = Uuid::from_bytes([0; 16]);
+
         Self {
             connection,
 
-            id: Uuid::new_v4(),
+            id: uuid,
 
-            hmac_key: [0u8; 32],
-            last_key: (0, [0u8; 32]),
+            hmac_key: Some([0u8; 32]),
+            last_key: (0, Some([0u8; 32])),
 
             dh_priv: [0u8; 32],
             dh_pubs: vec![],
             usernames: vec![],
+            kem_key_file_loc: format!("kem_key_file_{}", uuid.to_string()),
         }
     }
 
@@ -95,23 +106,36 @@ impl<'a, T: Connection> SendStream<'a, T> {
         vec![]
     }
 
-    pub fn send(&mut self, content: Vec<u8>, mode: Mode) -> Result<(), Box<dyn Error>> {
+    pub fn send(&mut self, content: Vec<u8>, mode: SendMode) -> Result<(), Box<dyn Error>> {
         // TODO: use the sender's fingerprint
         let (fingerprint, _) = crate::generate_fingerprint();
 
         let (mode, new_itr) = match mode {
-            Mode::Dh => (Encrypt::Dh(self.dh_priv, &self.dh_pubs, None), 0),
-            Mode::Hmac => (
-                Encrypt::Hmac(self.hmac_key, self.last_key.1, self.last_key.0),
+            SendMode::Dh => (Encrypt::Dh(self.dh_priv, &self.dh_pubs, None), 0),
+            SendMode::Hmac => (
+                Encrypt::Hmac(
+                    self.hmac_key.unwrap(),
+                    self.last_key.1.unwrap(),
+                    self.last_key.0,
+                ),
                 self.last_key.0 + 1,
             ),
-            Mode::Session => (Encrypt::Session(self.last_key.1, false), self.last_key.0),
+            SendMode::Session => (
+                Encrypt::Session(self.last_key.1.unwrap(), false),
+                self.last_key.0,
+            ),
+            SendMode::Kem => {
+                let key_file = File::open(&self.kem_key_file_loc)?;
+                let key_reader = KemKeyReader::new_dh_hybrid(self.dh_priv, key_file);
+
+                (Encrypt::Kem(key_reader), 0)
+            }
         };
 
         let (encrypted_content, key) = encrypt(fingerprint, content, mode)?;
 
         self.last_key.0 = new_itr;
-        self.last_key.1 = key;
+        self.last_key.1 = Some(key);
 
         self.connection.send(self.id, &encrypted_content)?;
 
@@ -256,7 +280,7 @@ impl<'a, T: Connection> Interaction<'a, T> {
         vec![]
     }
 
-    pub fn send(&mut self, content: Vec<u8>, mode: Mode) -> Result<(), Box<dyn Error>> {
+    pub fn send(&mut self, content: Vec<u8>, mode: SendMode) -> Result<(), Box<dyn Error>> {
         self.send_stream.send(content, mode)
     }
 

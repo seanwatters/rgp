@@ -107,7 +107,7 @@ pub fn generate_kem_keys() -> ([u8; KEM_SECRET_KEY_SIZE], [u8; KEM_PUB_KEY_SIZE]
     (*secret_key.as_array(), *pub_key.as_array())
 }
 
-/// for reading a large volume of McEliece public keys
+/// for reading a large volume of Classic McEliece public keys
 pub struct KemKeyReader<R: Read> {
     pub reader: BufReader<R>,
 
