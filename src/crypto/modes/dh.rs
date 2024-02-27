@@ -76,7 +76,7 @@ pub const DH_MODE: u8 = 2;
 /// 4. Encrypt content key for all recipients
 ///     - Generate shared secret with recipient's public key and sender's private key
 ///     - HMAC the shared secret with the provided key
-///     - Encrypt content key with shared secret
+///     - Encrypt content key with the HMAC result
 pub const DH_WITH_HMAC_MODE: u8 = 4;
 
 /// generates `Dh` pub/priv key pairs.
@@ -115,9 +115,9 @@ fn dh_encrypt_keys(
     let mut keys = vec![0u8; KEY_SIZE * keys_count];
 
     #[cfg(feature = "multi-thread")]
-    let chunks = keys.par_chunks_mut(KEY_SIZE);
+    let chunks = keys.par_chunks_exact_mut(KEY_SIZE);
     #[cfg(not(feature = "multi-thread"))]
-    let chunks = keys.chunks_mut(KEY_SIZE);
+    let chunks = keys.chunks_exact_mut(KEY_SIZE);
 
     chunks.enumerate().for_each(|(i, chunk)| {
         let mut key = GenericArray::from(priv_key.diffie_hellman(&pub_keys[i].into()).to_bytes());
