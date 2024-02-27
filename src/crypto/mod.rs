@@ -9,16 +9,22 @@ use chacha20::cipher::{generic_array::GenericArray, typenum};
 use chacha20poly1305::{aead::Aead, XChaCha20Poly1305};
 use ed25519_dalek::{Signer, Verifier};
 
-use classic_mceliece_rust::{
-    CRYPTO_CIPHERTEXTBYTES as KEM_CIPHERTEXT_SIZE, CRYPTO_SECRETKEYBYTES as KEM_SECRET_KEY_SIZE,
-};
-
 mod modes;
 use modes::*;
 pub use modes::{
     generate_dh_keys, generate_kem_keys, KemKeyReader, DH_MODE, DH_WITH_HMAC_MODE, HMAC_MODE,
     KEM_MODE, KEM_WITH_DH_HYBRID_MODE, SESSION_MODE, SESSION_WITH_KEYGEN_MODE,
 };
+
+/// size constants for keys, ciphertext, signature and nonce.
+pub mod sizes {
+    pub use super::modes::{KEM_CIPHERTEXT_SIZE, KEM_PUB_KEY_SIZE, KEM_SECRET_KEY_SIZE};
+
+    pub const NONCE_SIZE: usize = 24;
+    pub const KEY_SIZE: usize = 32;
+    pub const SIGNATURE_SIZE: usize = 64;
+}
+use sizes::*;
 
 mod decrypt;
 pub use decrypt::*;
@@ -28,10 +34,6 @@ pub use encrypt::*;
 
 mod extract;
 pub use extract::*;
-
-const NONCE_SIZE: usize = 24;
-const KEY_SIZE: usize = 32;
-const SIGNATURE_SIZE: usize = 64;
 
 /// generates fingerprints and verifying keys for signing.
 ///

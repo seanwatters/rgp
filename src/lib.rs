@@ -10,7 +10,7 @@ This file may not be copied, modified, or distributed except according to those 
 mod crypto;
 pub use crypto::*;
 
-use std::{error::Error, fs::File};
+use std::{collections::BTreeMap, error::Error, fs::File};
 use uuid::Uuid;
 
 /// specifies the encryption mode for a given message being sent.
@@ -40,11 +40,6 @@ struct SendStream<'a, T: Connection> {
     dh_priv: [u8; 32],
     dh_pubs: Vec<[u8; 32]>,
     usernames: Vec<String>,
-
-    // TODO: make this work such that this is just a reader that starts
-    // TODO: at the keys in the file that are already stored and don't
-    // TODO: deal with a second file.
-    kem_key_file_loc: String,
 }
 
 impl<'a, T: Connection> SendStream<'a, T> {
@@ -52,6 +47,7 @@ impl<'a, T: Connection> SendStream<'a, T> {
         let (dh_priv, _) = generate_dh_keys();
 
         let uuid = Uuid::new_v4();
+        // TODO: write file with uuid as name
 
         Self {
             connection,
@@ -64,12 +60,10 @@ impl<'a, T: Connection> SendStream<'a, T> {
             dh_priv,
             dh_pubs: vec![],
             usernames: vec![],
-            kem_key_file_loc: format!("kem_key_file_{}", uuid.to_string()),
         }
     }
 
-    /// bytes format
-    ///
+    /// FORMAT:
     /// - id = 16 bytes
     /// - hmac_key = 32 bytes (encrypted)
     /// - last_key (encrypted)
@@ -87,6 +81,8 @@ impl<'a, T: Connection> SendStream<'a, T> {
 
         let uuid = Uuid::from_bytes([0; 16]);
 
+        let dh_priv = [0u8; 32];
+
         Self {
             connection,
 
@@ -95,15 +91,20 @@ impl<'a, T: Connection> SendStream<'a, T> {
             hmac_key: Some([0u8; 32]),
             last_key: (0, Some([0u8; 32])),
 
-            dh_priv: [0u8; 32],
+            dh_priv,
             dh_pubs: vec![],
             usernames: vec![],
-            kem_key_file_loc: format!("kem_key_file_{}", uuid.to_string()),
         }
     }
 
     pub fn to_bytes() -> Vec<u8> {
         vec![]
+    }
+
+    fn kem_key_reader(&self) -> KemKeyReader<File> {
+        let file = File::open(self.id.to_string()).unwrap();
+        // TODO: seek to beginning of KEM keys
+        KemKeyReader::new_dh_hybrid(self.dh_priv, file)
     }
 
     pub fn send(&mut self, content: Vec<u8>, mode: SendMode) -> Result<(), Box<dyn Error>> {
@@ -124,12 +125,7 @@ impl<'a, T: Connection> SendStream<'a, T> {
                 Encrypt::Session(self.last_key.1.unwrap(), false),
                 self.last_key.0,
             ),
-            SendMode::Kem => {
-                let key_file = File::open(&self.kem_key_file_loc)?;
-                let key_reader = KemKeyReader::new_dh_hybrid(self.dh_priv, key_file);
-
-                (Encrypt::Kem(key_reader), 0)
-            }
+            SendMode::Kem => (Encrypt::Kem(self.kem_key_reader()), 0),
         };
 
         let (encrypted_content, key) = encrypt(fingerprint, content, mode)?;
@@ -156,18 +152,19 @@ struct RecvStream<'a, T: Connection> {
     // ?? a "seen_iterators" so that we can build up
     // ?? [2, 3, 4, 5], while we wait for 1 to come in
     // ?? (once 1 comes in, we can set to 5).
-    hmac_key: [u8; 32],
-    last_key: (usize, [u8; 32]),
+    hmac_key: [u8; sizes::KEY_SIZE],
+    last_key: (usize, [u8; sizes::KEY_SIZE]),
 
-    dh_pub: [u8; 32],
-    dh_priv: [u8; 32],
+    dh_pub: [u8; sizes::KEY_SIZE],
+    dh_priv: [u8; sizes::KEY_SIZE],
 
-    verifying_key: [u8; 32],
+    kem_secret: [u8; sizes::KEM_SECRET_KEY_SIZE],
+
+    verifier: [u8; sizes::KEY_SIZE],
 }
 
 impl<'a, T: Connection> RecvStream<'a, T> {
-    /// bytes format
-    ///
+    /// FORMAT:
     /// - id = 16 bytes
     /// - position
     ///     - size = 2 bits
@@ -191,26 +188,60 @@ impl<'a, T: Connection> RecvStream<'a, T> {
 
         for encrypted_msg in &mut encrypted_msgs {
             let (decrypted, key) = match extract_components_mut(self.position, encrypted_msg) {
-                Components::Dh(content_key, _) => decrypt(
-                    Some(&self.verifying_key),
-                    encrypted_msg,
-                    Decrypt::Dh(content_key, self.dh_priv, self.dh_pub, None),
-                )?,
+                Components::Dh(encrypted_key, with_hmac) => {
+                    if with_hmac {
+                        decrypt(
+                            Some(&self.verifier),
+                            encrypted_msg,
+                            Decrypt::Dh(
+                                encrypted_key,
+                                self.dh_priv,
+                                self.dh_pub,
+                                Some(self.hmac_key),
+                            ),
+                        )?
+                    } else {
+                        decrypt(
+                            Some(&self.verifier),
+                            encrypted_msg,
+                            Decrypt::Dh(encrypted_key, self.dh_priv, self.dh_pub, None),
+                        )?
+                    }
+                }
                 Components::Hmac(itr) => {
                     // TODO: do stuff with itr
 
                     decrypt(
-                        Some(&self.verifying_key),
+                        Some(&self.verifier),
                         encrypted_msg,
                         Decrypt::Hmac(self.hmac_key, self.last_key.1),
                     )?
                 }
-                Components::Session(_) => decrypt(
-                    Some(&self.verifying_key),
+                Components::Session(encrypted_key) => decrypt(
+                    Some(&self.verifier),
                     encrypted_msg,
-                    Decrypt::Session(self.last_key.1, None),
+                    Decrypt::Session(self.last_key.1, encrypted_key),
                 )?,
-                Components::Kem(_, _, _) => (vec![], [0u8; 32]),
+                Components::Kem(encrypted_key, ciphertext, is_dh_hybrid) => {
+                    if is_dh_hybrid {
+                        decrypt(
+                            Some(&self.verifier),
+                            encrypted_msg,
+                            Decrypt::Kem(
+                                encrypted_key,
+                                ciphertext,
+                                self.kem_secret,
+                                Some((self.dh_pub, self.dh_priv)),
+                            ),
+                        )?
+                    } else {
+                        decrypt(
+                            Some(&self.verifier),
+                            encrypted_msg,
+                            Decrypt::Kem(encrypted_key, ciphertext, self.kem_secret, None),
+                        )?
+                    }
+                }
             };
 
             self.last_key = (0, key);
@@ -229,9 +260,9 @@ pub struct Interaction<'a, T: Connection> {
     send_stream: SendStream<'a, T>,
     recv_streams: Vec<RecvStream<'a, T>>,
 
-    // probably should be a BTreeMap but for now
-    // we're just tracking (start, end, pub key, priv key) in a tuple
-    recv_keys: Vec<(u64, u64, [u8; 32], [u8; 32])>,
+    // initialization timestamp -> keys
+    dh_keys: BTreeMap<u64, ([u8; sizes::KEY_SIZE], [u8; sizes::KEY_SIZE])>,
+    kem_keys: BTreeMap<u64, [u8; sizes::KEM_SECRET_KEY_SIZE]>,
 }
 
 impl<'a, T: Connection> Interaction<'a, T> {
@@ -242,12 +273,12 @@ impl<'a, T: Connection> Interaction<'a, T> {
             send_stream: SendStream::new(connection),
             recv_streams: vec![],
 
-            recv_keys: vec![],
+            dh_keys: BTreeMap::new(),
+            kem_keys: BTreeMap::new(),
         }
     }
 
-    /// bytes format
-    ///
+    /// FORMAT:
     /// - receive streams count
     ///     - size = 2 bits
     ///     - count = 0-8 bytes
@@ -257,7 +288,7 @@ impl<'a, T: Connection> Interaction<'a, T> {
     ///         - size = 2 bits
     ///         - count = 0-8 bytes
     ///     - streams = ? * receive streams count
-    /// - recv_keys
+    /// - dh_keys
     ///     - count
     ///         - size = 2 bits
     ///         - count = 0-8 bytes
@@ -272,7 +303,8 @@ impl<'a, T: Connection> Interaction<'a, T> {
             send_stream: SendStream::new(connection),
             recv_streams: vec![],
 
-            recv_keys: vec![],
+            dh_keys: BTreeMap::new(),
+            kem_keys: BTreeMap::new(),
         }
     }
 
@@ -287,7 +319,7 @@ impl<'a, T: Connection> Interaction<'a, T> {
     pub fn recv_all(&mut self) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
         let mut out: Vec<Vec<u8>> = vec![];
 
-        // TODO: parallelize this
+        // TODO: parallelize this?
         for recv_stream in &mut self.recv_streams {
             let messages = recv_stream.recv()?;
             out.extend(messages);
