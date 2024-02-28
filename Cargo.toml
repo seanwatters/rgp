@@ -1,10 +1,10 @@
-# Copyright (c) 2024 sean watters
+# Copyright (c) 2024 Ordinary Labs
 #
 # Licensed under the MIT license <LICENSE or https://opensource.org/license/MIT>.
 # This file may not be copied, modified, or distributed except according to those terms.
 
 [package]
-authors = ["sean watters <sean@watters.io>"]
+authors = ["sean watters <sean@ordinarylabs.io>"]
 description = "Enabling E2EE for a broad range of applications."
 categories = ["cryptography"]
 edition = "2021"
