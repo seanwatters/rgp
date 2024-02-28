@@ -1,10 +1,10 @@
 # RGP
 
 [![ci](https://github.com/ordinarylabs/rgp/actions/workflows/ci.yml/badge.svg)](https://github.com/ordinarylabs/rgp/actions/workflows/ci.yml)
-[![license](https://img.shields.io/github/license/seanwatters/rgp.svg)](https://github.com/ordinarylabs/rgp/blob/main/LICENSE)
+[![license](https://img.shields.io/github/license/ordinarylabs/rgp.svg)](https://github.com/ordinarylabs/rgp/blob/main/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/rgp.svg)](https://crates.io/crates/rgp)
 [![docs.rs](https://docs.rs/rgp/badge.svg)](https://docs.rs/rgp/)
-[![dependency status](https://deps.rs/repo/github/seanwatters/rgp/status.svg)](https://deps.rs/repo/github/seanwatters/rgp)
+[![dependency status](https://deps.rs/repo/github/ordinarylabs/rgp/status.svg)](https://deps.rs/repo/github/ordinarylabs/rgp)
 
 _"Relatively Good Privacy"_
 
