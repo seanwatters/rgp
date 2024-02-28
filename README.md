@@ -118,7 +118,7 @@ All benchmarks for multi-recipient `Dh` and `Kem` mode are for **10,000** recipi
 
 ## License
 
-[AGPL-3.0](https://github.com/ordinarylabs/rgp/blob/main/LICENSE)
+[MIT](https://github.com/ordinarylabs/rgp/blob/main/LICENSE)
 
 ## Security
 
