@@ -1,10 +1,10 @@
 # RGP
 
-[![ci](https://github.com/ordinarylabs/rgp/actions/workflows/ci.yml/badge.svg)](https://github.com/ordinarylabs/rgp/actions/workflows/ci.yml)
-[![license](https://img.shields.io/github/license/ordinarylabs/rgp.svg)](https://github.com/ordinarylabs/rgp/blob/main/LICENSE)
+[![ci](https://github.com/seanwatters/rgp/actions/workflows/ci.yml/badge.svg)](https://github.com/seanwatters/rgp/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/seanwatters/rgp.svg)](https://github.com/seanwatters/rgp/blob/main/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/rgp.svg)](https://crates.io/crates/rgp)
 [![docs.rs](https://docs.rs/rgp/badge.svg)](https://docs.rs/rgp/)
-[![dependency status](https://deps.rs/repo/github/ordinarylabs/rgp/status.svg)](https://deps.rs/repo/github/ordinarylabs/rgp)
+[![dependency status](https://deps.rs/repo/github/seanwatters/rgp/status.svg)](https://deps.rs/repo/github/seanwatters/rgp)
 
 _"Relatively Good Privacy"_
 
@@ -64,7 +64,7 @@ if let Components::Dh(encrypted_key, _) =
 };
 ```
 
-More in the [examples](https://github.com/ordinarylabs/rgp/tree/main/examples) directory.
+More in the [examples](https://github.com/seanwatters/rgp/tree/main/examples) directory.
 
 ## Disable Multi-threading
 
@@ -112,13 +112,13 @@ Classic McEliece was chosen despite its larger key sizes because it has a much s
 
 ## Performance
 
-To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com/ordinarylabs/rgp/actions/workflows/ci.yml).
+To check performance on your machine, run `cargo bench`. You can also view the latest benches in the GitHub CI [workflow](https://github.com/seanwatters/rgp/actions/workflows/ci.yml).
 
 All benchmarks for multi-recipient `Dh` and `Kem` mode are for **10,000** recipients, and all benchmarks for sign+encrypt/decrypt+verify are using **5mb** payloads.
 
 ## License
 
-[MIT](https://github.com/ordinarylabs/rgp/blob/main/LICENSE)
+[MIT](https://github.com/seanwatters/rgp/blob/main/LICENSE)
 
 ## Security
 
