@@ -9,7 +9,7 @@ use super::super::{
     base_decrypt, base_encrypt, bytes_to_usize, usize_to_bytes, KEY_SIZE, NONCE_SIZE,
 };
 
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Seek};
 #[cfg(feature = "multi-thread")]
 use std::sync::mpsc::channel;
 
@@ -112,14 +112,14 @@ pub fn generate_kem_keys() -> ([u8; KEM_SECRET_KEY_SIZE], [u8; KEM_PUB_KEY_SIZE]
 }
 
 /// for reading a large volume of Classic McEliece public keys
-pub struct KemKeyReader<R: Read> {
+pub struct KemKeyReader<R: Read + Seek> {
     pub reader: BufReader<R>,
 
     /// for Kem + Dh hybrid
     pub dh_priv_key: Option<[u8; KEY_SIZE]>,
 }
 
-impl<R: Read> KemKeyReader<R> {
+impl<R: Read + Seek> KemKeyReader<R> {
     /// public key reader with a buffer size of 261120.
     ///
     /// for files that contain only McEliece public keys all in one line.
@@ -144,7 +144,7 @@ impl<R: Read> KemKeyReader<R> {
 
 /// per-recipient content key encryption.
 #[inline(always)]
-fn kem_encrypt_keys<R: Read>(
+fn kem_encrypt_keys<R: Read + Seek>(
     key_reader: &mut KemKeyReader<R>,
     nonce: &GenericArray<u8, typenum::U24>,
     content_key: &GenericArray<u8, typenum::U32>,
@@ -226,7 +226,7 @@ fn kem_encrypt_keys<R: Read>(
 
 /// kem encryption.
 #[inline(always)]
-pub fn kem_encrypt<'a, R: Read>(
+pub fn kem_encrypt<'a, R: Read + Seek>(
     fingerprint: [u8; 32],
     mut content: Vec<u8>,
     key_reader: &mut KemKeyReader<R>,
