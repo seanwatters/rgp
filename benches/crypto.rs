@@ -105,7 +105,7 @@ fn kem_encrypt_benchmark(c: &mut Criterion) {
         .create(true)
         .write(true)
         .append(true)
-        .open("pub_keys")
+        .open("bench_pub_keys")
         .unwrap();
 
     pub_keys_file.write_all(&recipient_pub_key).unwrap();
@@ -119,14 +119,14 @@ fn kem_encrypt_benchmark(c: &mut Criterion) {
                 black_box(fingerprint),
                 black_box(content.clone()),
                 black_box(Encrypt::Kem(KemKeyReader::new(
-                    File::open("pub_keys").unwrap(),
+                    File::open("bench_pub_keys").unwrap(),
                 ))),
             )
             .unwrap();
         })
     });
 
-    remove_file("pub_keys").unwrap();
+    remove_file("bench_pub_keys").unwrap();
 }
 
 fn kem_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
@@ -138,7 +138,7 @@ fn kem_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
         .create(true)
         .write(true)
         .append(true)
-        .open("pub_keys")
+        .open("bench_pub_keys")
         .unwrap();
 
     for _ in 0..10_000 {
@@ -154,14 +154,14 @@ fn kem_encrypt_multi_recipient_benchmark(c: &mut Criterion) {
                 black_box(fingerprint),
                 black_box(content.clone()),
                 black_box(Encrypt::Kem(KemKeyReader::new(
-                    File::open("pub_keys").unwrap(),
+                    File::open("bench_pub_keys").unwrap(),
                 ))),
             )
             .unwrap();
         })
     });
 
-    remove_file("pub_keys").unwrap();
+    remove_file("bench_pub_keys").unwrap();
 }
 
 fn session_decrypt_benchmark(c: &mut Criterion) {
@@ -257,7 +257,7 @@ fn kem_decrypt_benchmark(c: &mut Criterion) {
         .create(true)
         .write(true)
         .append(true)
-        .open("pub_keys")
+        .open("bench_pub_keys")
         .unwrap();
 
     pub_keys_file.write_all(&recipient_pub_key).unwrap();
@@ -268,7 +268,7 @@ fn kem_decrypt_benchmark(c: &mut Criterion) {
     let (mut encrypted_content, _) = encrypt(
         fingerprint,
         content.clone(),
-        Encrypt::Kem(KemKeyReader::new(File::open("pub_keys").unwrap())),
+        Encrypt::Kem(KemKeyReader::new(File::open("bench_pub_keys").unwrap())),
     )
     .unwrap();
 
@@ -293,7 +293,7 @@ fn kem_decrypt_benchmark(c: &mut Criterion) {
         })
     });
 
-    remove_file("pub_keys").unwrap();
+    remove_file("bench_pub_keys").unwrap();
 }
 
 criterion_group!(

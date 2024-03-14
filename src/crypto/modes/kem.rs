@@ -21,10 +21,14 @@ use chacha20::{
 use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
 use classic_mceliece_rust::{
     decapsulate, encapsulate, keypair as kem_keypair, Ciphertext, PublicKey as KemPublicKey,
-    SecretKey as KemSecretKey, CRYPTO_CIPHERTEXTBYTES as KEM_CIPHERTEXT_SIZE,
-    CRYPTO_PUBLICKEYBYTES as KEM_PUB_KEY_SIZE, CRYPTO_SECRETKEYBYTES as KEM_SECRET_KEY_SIZE,
+    SecretKey as KemSecretKey, CRYPTO_CIPHERTEXTBYTES, CRYPTO_PUBLICKEYBYTES,
+    CRYPTO_SECRETKEYBYTES,
 };
 use x25519_dalek::StaticSecret;
+
+pub const KEM_CIPHERTEXT_SIZE: usize = CRYPTO_CIPHERTEXTBYTES;
+pub const KEM_PUB_KEY_SIZE: usize = CRYPTO_PUBLICKEYBYTES;
+pub const KEM_SECRET_KEY_SIZE: usize = CRYPTO_SECRETKEYBYTES;
 
 /// #
 /// **ENCRYPTED FORMAT:**
