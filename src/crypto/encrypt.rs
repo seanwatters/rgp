@@ -5,12 +5,13 @@ Licensed under the MIT license <LICENSE or https://opensource.org/licenses/MIT>.
 This file may not be copied, modified, or distributed except according to those terms.
 */
 
-use std::{fs::File, io::Read};
+use std::fs::File;
+use std::io::{Read, Seek};
 
 use super::{dh_encrypt, hmac_encrypt, kem_encrypt, session_encrypt, KemKeyReader, KEY_SIZE};
 
 /// encapsulates the parameters and mode for encryption.
-pub enum Encrypt<'a, R: Read = File> {
+pub enum Encrypt<'a, R: Read + Seek = File> {
     /// generates random content key and encrypts for all
     /// recipients with their respective Diffie-Hellman shared secret.
     Dh(
