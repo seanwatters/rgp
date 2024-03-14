@@ -63,19 +63,6 @@ impl<'a, T: Connection> SendStream<'a, T> {
         }
     }
 
-    /// FORMAT:
-    /// - id = 16 bytes
-    /// - hmac_key = 32 bytes (encrypted)
-    /// - last_key (encrypted)
-    ///     - iteration
-    ///         - size = 2 bits
-    ///         - iteration = 0-8 bytes
-    ///     - value = 32 bytes
-    /// - recipients count
-    ///     - size = 2 bits
-    ///     - count = 0-8 bytes
-    /// - dh_pubs = 32 bytes * recipient count
-    /// - usernames = variable bytes * recipient count (encrypted)
     pub fn from_bytes(bytes: &[u8], connection: &'a T) -> Self {
         // TODO: write to the kem key file
 
@@ -103,7 +90,6 @@ impl<'a, T: Connection> SendStream<'a, T> {
 
     fn kem_key_reader(&self) -> KemKeyReader<File> {
         let file = File::open(self.id.to_string()).unwrap();
-        // TODO: seek to beginning of KEM keys
         KemKeyReader::new_dh_hybrid(self.dh_priv, file)
     }
 
@@ -164,17 +150,6 @@ struct RecvStream<'a, T: Connection> {
 }
 
 impl<'a, T: Connection> RecvStream<'a, T> {
-    /// FORMAT:
-    /// - id = 16 bytes
-    /// - position
-    ///     - size = 2 bits
-    ///     - position = 0-8 bytes
-    /// - hmac_key = 32 bytes (encrypted)
-    /// - last_key (encrypted)
-    ///     - iteration
-    ///         - size = 2 bits
-    ///         - iteration = 0-8 bytes
-    ///     - value = 32 bytes
     pub fn from_bytes(bytes: &[u8], connection: &'a T) {}
 
     pub fn to_bytes() -> Vec<u8> {
@@ -278,24 +253,6 @@ impl<'a, T: Connection> Interaction<'a, T> {
         }
     }
 
-    /// FORMAT:
-    /// - receive streams count
-    ///     - size = 2 bits
-    ///     - count = 0-8 bytes
-    /// - send stream = ?
-    /// - receive streams
-    ///     - count
-    ///         - size = 2 bits
-    ///         - count = 0-8 bytes
-    ///     - streams = ? * receive streams count
-    /// - dh_keys
-    ///     - count
-    ///         - size = 2 bits
-    ///         - count = 0-8 bytes
-    ///     - start = 8 bytes
-    ///     - end = 8 bytes
-    ///     - pub key = 32 bytes
-    ///     - priv key = 32 bytes (encrypted)
     pub fn from_bytes(bytes: &[u8], connection: &'a T) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -319,7 +276,6 @@ impl<'a, T: Connection> Interaction<'a, T> {
     pub fn recv_all(&mut self) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
         let mut out: Vec<Vec<u8>> = vec![];
 
-        // TODO: parallelize this?
         for recv_stream in &mut self.recv_streams {
             let messages = recv_stream.recv()?;
             out.extend(messages);
@@ -328,12 +284,3 @@ impl<'a, T: Connection> Interaction<'a, T> {
         Ok(out)
     }
 }
-
-// ?? will need a "bootstrapping stream" for adding a new user to an interaction
-//  * sharing your public key for them to encrypt with
-//  * sharing their position on your send stream
-//  * sharing the current ratchet state
-//  * sharing any "historical keys" for your stream
-
-// ?? will also need "repair streams" maybe? but those will likely just be identical to
-// ?? bootstrapping streams as they serve the same "re-sync" purpose.
